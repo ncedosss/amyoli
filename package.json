@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "server/bin/www",
   "scripts": {
-    "start": "server/bin/www",
+    "start": "node server/bin/www",
     "server": "nodemon server/index.js",
     "heroku-postbuild": "cd client && npm install && npm run build"
   },
