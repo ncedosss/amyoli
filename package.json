@@ -1,0 +1,25 @@
+{
+  "name": "transport-billing-system",
+  "version": "1.0.0",
+  "main": "server/bin/www",
+  "scripts": {
+    "start": "server/bin/www",
+    "server": "nodemon server/index.js",
+    "heroku-postbuild": "cd ../client && npm install && npm run build"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "canvas": "^3.2.1",
+    "cookie-parser": "~1.4.4",
+    "cors": "^2.8.6",
+    "debug": "~2.6.9",
+    "dotenv": "^17.3.1",
+    "express": "~4.16.1",
+    "jsonwebtoken": "^9.0.3",
+    "jspdf": "^4.2.0",
+    "morgan": "~1.9.1",
+    "nodemailer": "^8.0.1",
+    "pdfkit": "^0.17.2",
+    "pg": "^8.18.0"
+  }
+}
