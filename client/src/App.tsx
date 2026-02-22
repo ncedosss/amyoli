@@ -766,7 +766,7 @@ const now = new Date();
                   required
                   inputRef={dateRef}
                   inputProps={{
-                    max: new Date().toISOString().split("T")[0], // ✅ prevents future dates
+                    max: new Date().toLocaleDateString("en-CA"), // ✅ prevents future dates
                     style: { cursor: 'pointer' }
                   }}
                   onClick={() => dateRef.current?.showPicker()}
@@ -998,7 +998,7 @@ const now = new Date();
                   required
                   inputRef={dateRef}
                   inputProps={{
-                    max: new Date().toISOString().split("T")[0], // ✅ prevents future dates
+                    max: new Date().toLocaleDateString("en-CA"), // ✅ prevents future dates
                     style: { cursor: 'pointer' }
                   }}
                   onClick={() => dateRef.current?.showPicker()}
