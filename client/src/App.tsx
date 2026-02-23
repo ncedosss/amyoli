@@ -46,6 +46,11 @@ function App() {
       const [confirmLoading, setConfirmLoading] = useState(false);
       const [confirmError, setConfirmError] = useState('');
 
+      // View Invoice modal state
+      const [viewInvoiceOpen, setViewInvoiceOpen] = useState(false);
+      const [invoicePdfUrl, setInvoicePdfUrl] = useState<string | null>(null);
+      const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
+
       // User menu state
       const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
       const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -149,6 +154,50 @@ function App() {
         setStatementDialogOpen(true);
       }
     };
+
+    // Handler to view invoice PDF in modal (independent loading)
+    const handleViewInvoice = async () => {
+      setViewInvoiceLoading(true);
+      type SummaryRow = { label: string; qty: number; rate: number };
+      const summary: Record<string, SummaryRow> = {};
+      filteredTrips.forEach(trip => {
+        const key = trip.shifttype;
+        if (!summary[key]) {
+          summary[key] = {
+            label: shiftTypes.find((st: any) => st.value === key)?.label || key,
+            qty: 0,
+            rate: trip.rate
+          };
+        }
+        summary[key].qty += 1;
+      });
+      const invoiceRows = Object.values(summary).map(row => ({
+        description: row.label,
+        qty: row.qty,
+        rate: row.rate
+      }));
+      const invoiceData = {
+        invoiceNo: filterMonth,
+        rows: invoiceRows
+      };
+      try {
+        const response = await fetch('/api/invoice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-View-Only': 'true' },
+          body: JSON.stringify({ invoiceData })
+        });
+        if (!response.ok || !response.headers.get('content-type')?.includes('application/pdf')) throw new Error('Failed to fetch invoice PDF');
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        setInvoicePdfUrl(url);
+        setViewInvoiceOpen(true);
+      } catch (err) {
+        setSnackbar({ open: true, message: 'Error viewing invoice.', severity: 'error' });
+      } finally {
+        setViewInvoiceLoading(false);
+      }
+    };
+
     // Handle statement generation
     const handleGenerateStatement = async () => {
       if (!selectedInvoiceNo) return;
@@ -801,31 +850,122 @@ const now = new Date();
         {/* Trip List as DataGrid with Month Filter and Invoice Button */}
         <Paper sx={{ p: 3, mt: 4 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 2 }}>
-            <Typography variant="h6">Trips List</Typography>
+            <Typography variant="h6" sx={{ mb: { xs: 2, sm: 0 } }}>Trips List</Typography>
             <TextField
               label="Filter by Month"
               type="month"
               size="small"
               value={filterMonth}
               onChange={e => setFilterMonth(e.target.value)}
-              sx={{ minWidth: 180 }}
+              sx={{ minWidth: 180, mb: { xs: 2, sm: 0 } }}
               InputLabelProps={{ shrink: true }}
               inputRef={dateRefMonth}
               inputProps={{ style: { cursor: 'pointer' } }}
               onClick={() => dateRefMonth.current?.showPicker()}
             />
-            <Button
-              variant="contained"
-              color="secondary"
-              onClick={handleMenuClick}
-              disabled={filteredTrips.length === 0 || invoiceLoading}
-              startIcon={invoiceLoading ? <CircularProgress size={20} color="inherit" /> : null}
-              aria-controls={openMenu ? 'generate-menu' : undefined}
-              aria-haspopup="true"
-              aria-expanded={openMenu ? 'true' : undefined}
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: { xs: 'column', sm: 'row' },
+                gap: 2,
+                width: { xs: '100%', sm: 'auto' },
+                alignItems: { xs: 'stretch', sm: 'center' },
+                flex: 1,
+                justifyContent: { xs: 'flex-start', sm: 'flex-end' },
+              }}
             >
-              {invoiceLoading ? 'Generating...' : 'Generate'}
-            </Button>
+              <Button
+                variant="outlined"
+                color="primary"
+                onClick={handleViewInvoice}
+                disabled={filteredTrips.length === 0 || viewInvoiceLoading}
+                sx={{ minWidth: { xs: '100%', sm: 160 } }}
+                startIcon={viewInvoiceLoading ? <CircularProgress size={20} color="inherit" /> : null}
+              >
+                {viewInvoiceLoading ? 'Loading...' : 'View Invoice'}
+              </Button>
+              <Button
+                variant="contained"
+                color="secondary"
+                onClick={handleMenuClick}
+                disabled={filteredTrips.length === 0 || invoiceLoading}
+                startIcon={invoiceLoading ? <CircularProgress size={20} color="inherit" /> : null}
+                aria-controls={openMenu ? 'generate-menu' : undefined}
+                aria-haspopup="true"
+                aria-expanded={openMenu ? 'true' : undefined}
+                sx={{ minWidth: { xs: '100%', sm: 140 } }}
+              >
+                {invoiceLoading ? 'Generating...' : 'Generate'}
+              </Button>
+            </Box>
+                      {/* View Invoice Modal */}
+                      <Dialog
+                        open={viewInvoiceOpen}
+                        onClose={(_, reason) => {
+                          if (reason === 'backdropClick' || reason === 'escapeKeyDown') return;
+                          setViewInvoiceOpen(false);
+                          if (invoicePdfUrl) {
+                            window.URL.revokeObjectURL(invoicePdfUrl);
+                            setInvoicePdfUrl(null);
+                          }
+                        }}
+                        maxWidth="md"
+                        fullWidth
+                      >
+                        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          Invoice Preview
+                          <Button
+                            onClick={() => {
+                              setViewInvoiceOpen(false);
+                              if (invoicePdfUrl) {
+                                window.URL.revokeObjectURL(invoicePdfUrl);
+                                setInvoicePdfUrl(null);
+                              }
+                            }}
+                            color="secondary"
+                            variant="outlined"
+                            size="small"
+                          >
+                            Close
+                          </Button>
+                        </DialogTitle>
+                        <DialogContent>
+                          {invoicePdfUrl ? (
+                            <Box
+                              sx={{
+                                width: { xs: '100%', sm: '90%', md: '80%' },
+                                height: { xs: '60vh', sm: '70vh', md: '600px' },
+                                minHeight: 300,
+                                maxHeight: '80vh',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                margin: '0 auto',
+                                alignSelf: 'center',
+                              }}
+                            >
+                              <iframe
+                                src={invoicePdfUrl}
+                                title="Invoice PDF"
+                                style={{
+                                  border: 'none',
+                                  width: '100%',
+                                  height: '100%',
+                                  minHeight: 300,
+                                  borderRadius: 8,
+                                  background: '#f5f5f5',
+                                  display: 'block',
+                                  margin: '0 auto',
+                                }}
+                                allowFullScreen
+                              />
+                            </Box>
+                          ) : (
+                            <Typography>Loading PDF...</Typography>
+                          )}
+                        </DialogContent>
+                      </Dialog>
             <Menu
               id="generate-menu"
               anchorEl={anchorEl}
@@ -888,18 +1028,13 @@ const now = new Date();
                   shiftTypes.find(st => st.value === trip.shifttype)?.label || '',
                 rateDisplay: `R${Number(trip.rate)?.toFixed(2)}`,
                 id: trip.id,
-                trip_date: trip.trip_date.split('T')[0],
-                userCreatedLabel: trip.userCreated,
-                userUpdatedLabel: trip.userUpdated
+                trip_date: trip.trip_date.split('T')[0]
               }))}
               columns={[
                 { field: 'id', headerName: 'Trip ID', flex: 1 },
                 { field: 'trip_date', headerName: 'Trip Date', flex: 1 },
                 { field: 'shiftTypeLabel', headerName: 'Shift Type', flex: 1 },
-                { field: 'direction', headerName: 'Direction', flex: 1 },
                 { field: 'rateDisplay', headerName: 'Rate', flex: 1 },
-                { field: 'userCreatedLabel', headerName: 'User Created', flex: 1 },
-                { field: 'userUpdatedLabel', headerName: 'User Updated', flex: 1 },
                 {
                   field: 'actions',
                   headerName: 'Actions',

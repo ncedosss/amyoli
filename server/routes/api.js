@@ -279,83 +279,59 @@ router.put('/trips/:id', async (req, res) => {
 router.post('/invoice', async (req, res) => {
 
   try {
-
     const { invoiceData } = req.body;
     let subTotal = 0;
-
     invoiceData.rows.forEach(row => {
-        const qty = Number(row.qty) || 0;
-        const rate = Number(row.rate) || 0;
-
-        const lineTotal = qty * rate;
-
-        subTotal += lineTotal;
-
+      const qty = Number(row.qty) || 0;
+      const rate = Number(row.rate) || 0;
+      const lineTotal = qty * rate;
+      subTotal += lineTotal;
     });
-
     // Insert into Invoice table
     const invoiceInsertResult = await pool.query(
       `INSERT INTO am."Invoice" (Total_Amount)
        VALUES ($1)
        RETURNING Invoice_No`,
-      [
-        subTotal
-      ]
+      [subTotal]
     );
     const invoiceNo = invoiceInsertResult.rows[0].invoice_no;
     invoiceData.invoiceNo = 'INV' + invoiceNo;
-
     // Insert each row into Invoice_Detail table
     for (const row of invoiceData.rows) {
       await pool.query(
         `INSERT INTO am."Invoice_Detail" (Invoice_No, Description, Rate, Qty, Amount)
          VALUES ($1, $2, $3, $4, $5)`,
-        [
-          invoiceNo,
-          row.description,
-          row.rate,
-          row.qty,
-          row.qty * row.rate
-        ]
+        [invoiceNo, row.description, row.rate, row.qty, row.qty * row.rate]
       );
     }
-
-    // ✅ generate PDF buffer directly from jsPDF
+    // Generate PDF buffer
     const pdfBuffer = generateInvoice(invoiceData);
-
-    // ✅ send email if provided
+    // If X-View-Only header is set, just return the PDF (no email)
+    if (req.headers['x-view-only'] === 'true') {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename=invoice_${invoiceNo}.pdf`);
+      return res.end(pdfBuffer);
+    }
+    // Otherwise, send email as before
     let emailSent = true;
     try {
-        await sendInvoiceEmail({
-            to: 'ncedosss@gmail.com',
-            subject: 'Your Invoice',
-            text: 'Please find attached your invoice.',
-            pdfBuffer
-        });
+      await sendInvoiceEmail({
+        to: 'ncedosss@gmail.com',
+        subject: 'Your Invoice',
+        text: 'Please find attached your invoice.',
+        pdfBuffer
+      });
     } catch (err) {
-        console.error('Error sending invoice email:', err); 
+      console.error('Error sending invoice email:', err);
       emailSent = false;
     }
-
-    // ✅ send PDF to browser
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename=invoice_${invoiceNo}.pdf`
-    );
-
+    res.setHeader('Content-Disposition', `attachment; filename=invoice_${invoiceNo}.pdf`);
     res.setHeader('X-Email-Sent', emailSent ? 'true' : 'false');
-
     res.json({ success: true });
-  }
-  catch (err) {
-
+  } catch (err) {
     console.error(err);
-
-    res.status(500).json({
-      error: err.message
-    });
-
+    res.status(500).json({ error: err.message });
   }
 
 });
