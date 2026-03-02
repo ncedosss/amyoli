@@ -120,12 +120,21 @@ function generateInvoice(invoiceData) {
 
     doc.setFont("helvetica", "bold");
 
+    if (invoiceData.client === "Atlantis Foundaries") {
     doc.text(
       "EMPLOYEE TRANSPORT - WITSAND ROUTE",
       195,
       95,
       { align: "right" }
     );
+  }else if (invoiceData.client === "CSV") {
+    doc.text(
+      "EMPLOYEE TRANSPORT - WITSAND/ATLANTIS ROUTE",
+      195,
+      95,
+      { align: "right" }
+    );
+  }
 
   // ======================
   // TABLE HEADER
