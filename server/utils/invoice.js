@@ -88,18 +88,30 @@ function generateInvoice(invoiceData) {
     doc.setTextColor(0, 0, 0);
 
     // Left side CLIENT details
-    doc.text("ATT: Charlene Adams", 14, 70);
-    doc.text("ATLANTIS FOUNDRIES PTY LTD", 14, 75);
-    doc.text("William Gourlay Street", 14, 80);
-    doc.text("Atlantis Industria, Atlantis", 14, 85);
-    doc.text("7349", 14, 90);
-    doc.text("Vat No. 4950102162", 14, 95);
+    if (invoiceData.client === "Atlantis Foundaries") {
+      doc.text("ATT: Charlene Adams", 14, 70);
+      doc.text("ATLANTIS FOUNDRIES PTY LTD", 14, 75);
+      doc.text("William Gourlay Street", 14, 80);
+      doc.text("Atlantis Industria, Atlantis", 14, 85);
+      doc.text("7349", 14, 90);
+      doc.text("Vat No. 4950102162", 14, 95);
+    } else if (invoiceData.client === "CSV") {
+      doc.text("ATT: Errol Sedras", 14, 70);
+      doc.text("CSV Construction (PTY) LTD", 14, 75);
+      doc.text("487 Old Main Road", 14, 80);
+      doc.text("Firgrove, Somerset West", 14, 85);
+      doc.text("7130", 14, 90);
+    }
 
     // Right side INVOICE details
     doc.text(`INV-${invoiceData.invoiceNo || ""}`, 112, 66);
     doc.text(new Date().toLocaleDateString(), 157, 66);
 
-    doc.text("AF005", 112, 81);
+    if (invoiceData.client === "Atlantis Foundaries") {
+      doc.text("AF005", 112, 81);
+    } else if (invoiceData.client === "CSV") {
+      doc.text("-", 112, 81);
+    }
     doc.text("On Receipt", 157, 81);
 
   // ======================

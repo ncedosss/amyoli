@@ -21,10 +21,12 @@ CssBaseline,
   CircularProgress,
   Menu,
   FormControl,
+  FormControlLabel,
   InputLabel,
+  Checkbox,
 } from '@mui/material';
 import Autocomplete from '@mui/material/Autocomplete';
-import { DataGrid, GridColDef, GridRowsProp } from '@mui/x-data-grid';
+import { DataGrid, GridColDef, GridRowSelectionModel } from '@mui/x-data-grid';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import Grid from '@mui/material/Grid';
@@ -50,6 +52,15 @@ function App() {
       const [viewInvoiceOpen, setViewInvoiceOpen] = useState(false);
       const [invoicePdfUrl, setInvoicePdfUrl] = useState<string | null>(null);
       const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
+
+      //Bulk delete state
+      const [rowSelectionModel, setRowSelectionModel] =
+        useState<GridRowSelectionModel>({
+          type: 'include',
+          ids: new Set()
+        });
+      const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+      const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
 
       // User menu state
       const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
@@ -125,6 +136,11 @@ function App() {
       };
     // Auth state
     const [loggedIn, setLoggedIn] = useState(false);
+
+    // Client selection state
+    const [clients, setClients] = useState<{ value: string; label: string }[]>([]);
+    const [selectedClient, setSelectedClient] = useState<string>('');
+
     // Invoices state for statement dropdown
     const [invoices, setInvoices] = useState<any[]>([]);
     const [statementDialogOpen, setStatementDialogOpen] = useState(false);
@@ -132,6 +148,17 @@ function App() {
     const [statementLoading, setStatementLoading] = useState(false);
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const openMenu = Boolean(anchorEl);
+
+    // useEffect to fetch clients (only when logged in)
+    useEffect(() => {
+      if (!loggedIn) return;
+      fetch('/api/clients')
+        .then(res => res.json())
+        .then(data => {
+          setClients(data.map((c: any) => ({ value: c.name, label: c.name })));
+        });
+    }, [loggedIn]);
+
     // useEffect to fetch invoices (only when logged in)
     useEffect(() => {
       if (!loggedIn) return;
@@ -157,10 +184,16 @@ function App() {
 
     // Handler to view invoice PDF in modal (independent loading)
     const handleViewInvoice = async () => {
+      if (!selectedClient) {
+        setSnackbar({ open: true, message: 'Please select a client first.', severity: 'warning' });
+        return;
+      }
       setViewInvoiceLoading(true);
       type SummaryRow = { label: string; qty: number; rate: number };
       const summary: Record<string, SummaryRow> = {};
-      filteredTrips.forEach(trip => {
+      // Only include trips for the selected client
+      const clientTrips = filteredTrips.filter(trip => trip.client === selectedClient);
+      clientTrips.forEach(trip => {
         const key = trip.shifttype;
         if (!summary[key]) {
           summary[key] = {
@@ -177,7 +210,7 @@ function App() {
         rate: row.rate
       }));
       const invoiceData = {
-        invoiceNo: filterMonth,
+        client: selectedClient,
         rows: invoiceRows
       };
       try {
@@ -200,13 +233,16 @@ function App() {
 
     // Handle statement generation
     const handleGenerateStatement = async () => {
-      if (!selectedInvoiceNo) return;
+      if (!selectedInvoiceNo || !selectedClient) {
+        setSnackbar({ open: true, message: 'Please select a client and invoice.', severity: 'warning' });
+        return;
+      }
       setStatementLoading(true);
       try {
         const response = await fetch('/api/statement', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ invoiceNo: selectedInvoiceNo })
+          body: JSON.stringify({ invoiceNo: selectedInvoiceNo, client: selectedClient })
         });
         if (!response.ok) throw new Error('Failed to generate statement');
 
@@ -249,21 +285,19 @@ function App() {
     const [tripForm, setTripForm] = useState({
       shiftType: '',
       direction: '',
-      driver: '',
+      clientid: '',
       tripDate: '',
       quantity: 1
     });
+    const [returnTrip, setReturnTrip] = useState(false);
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [editTrip, setEditTrip] = useState<any | null>(null);
 
     // Lookup state
     const [shiftTypes, setShiftTypes] = useState<any[]>([]);
-    const [drivers, setDrivers] = useState<any[]>([]);
     const [shiftRates, setShiftRates] = useState<Record<string, number>>({});
 
   // Removed dummy credentials
-
-
     // useEffect to fetch shift types (only when logged in)
     useEffect(() => {
       if (!loggedIn) return;
@@ -271,16 +305,6 @@ function App() {
         .then(res => res.json())
         .then(data => {
           setShiftTypes(data.map((st: any) => ({ value: st.name, label: st.description })));
-        });
-    }, [loggedIn]);
-
-    // useEffect to fetch drivers (only when logged in)
-    useEffect(() => {
-      if (!loggedIn) return;
-      fetch('/api/drivers')
-        .then(res => res.json())
-        .then(data => {
-          setDrivers(data.map((d: any) => ({ value: (d.name), label: `${d.name}` })));
         });
     }, [loggedIn]);
 
@@ -374,7 +398,8 @@ function App() {
         body: JSON.stringify({
           shiftType: tripForm.shiftType,
           direction: tripForm.direction,
-          driver: 'Kostile',
+          clientid: tripForm.clientid,
+          returnTrip: returnTrip,
           tripDate: tripForm.tripDate,
           userCreated: username
         })
@@ -388,7 +413,7 @@ function App() {
         shiftType: trip.shifttype,
         tripDate: trip.trip_date,
         dateCaptured: trip.date_created,
-        driver: trip.driver,
+        clientid: trip.clientid,
         direction: trip.direction,
         userCreated: trip.user_created || '',
         userUpdated: trip.user_updated || ''
@@ -396,7 +421,7 @@ function App() {
     setTripForm({
       shiftType: '',
       direction: '',
-      driver: '',
+      clientid: '',
       tripDate: '',
       quantity: 1
     });
@@ -423,7 +448,7 @@ function App() {
       body: JSON.stringify({
         shiftType: editTrip.shifttype,
         direction: editTrip.direction,
-        driver: 'Kostile',
+        clientid: editTrip.clientid,
         tripDate: editTrip.trip_date,
         userUpdated: username
       })
@@ -436,7 +461,7 @@ function App() {
         shiftType: trip.shifttype,
         tripDate: trip.trip_date,
         dateCaptured: trip.date_created,
-        driver: trip.driver,
+        clientid: trip.clientid,
         direction: trip.direction,
         userCreated: trip.user_created || '',
         userUpdated: trip.user_updated || ''
@@ -574,6 +599,61 @@ const now = new Date();
       setInvoiceLoading(false);
     }
   };
+  
+  const handleBulkDeleteConfirm = async () => {
+    setBulkDeleteLoading(true);
+    let idsToDelete: number[] = [];
+
+    if (rowSelectionModel.type === "include") {
+      idsToDelete = Array.from(rowSelectionModel.ids) as number[];
+    } else {
+      // type === "exclude" means all rows selected except those excluded
+      const excludedIds = rowSelectionModel.ids;
+
+      idsToDelete = filteredTrips
+        .map(trip => trip.id)
+        .filter(id => !excludedIds.has(id));
+    }
+
+    try {
+      await Promise.all(
+        idsToDelete.map((id) =>
+          fetch(`/api/trips/${id}`, { method: 'DELETE' })
+        )
+      );
+      const res = await fetch('/api/trips');
+      const data = await res.json();
+      setTrips(data.map((trip: any) => ({
+        ...trip,
+        id: trip.id,
+        shiftType: trip.shifttype,
+        tripDate: trip.trip_date,
+        dateCaptured: trip.date_created,
+        direction: trip.direction,
+        userCreated: trip.user_created || '',
+        userUpdated: trip.user_updated || ''
+      })));
+      setSnackbar({
+        open: true,
+        message: `${idsToDelete.length} trip(s) deleted successfully.`,
+        severity: 'success'
+      });
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: 'Error deleting trips.',
+        severity: 'error'
+      });
+    }
+    setRowSelectionModel({ type: 'include', ids: new Set() });
+    setBulkDeleteDialogOpen(false);
+    setBulkDeleteLoading(false);
+  };
+
+const selectedCount =
+  rowSelectionModel.type === "include"
+    ? rowSelectionModel.ids.size
+    : filteredTrips.length - rowSelectionModel.ids.size;
 
   // Login screen
   if (!loggedIn) {
@@ -769,6 +849,26 @@ const now = new Date();
               <Grid size={{ xs: 12, md: 3 }}>
                 <TextField
                   select
+                  label="Client"
+                  name="clientid"
+                  fullWidth
+                  value={tripForm.clientid}
+                  onChange={handleTripFormChange}
+                  required
+                >
+                  <MenuItem value="">
+                    <em>Select</em>
+                  </MenuItem>
+                  {clients.map((client) => (
+                    <MenuItem key={client.value} value={client.value}>
+                      {client.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid size={{ xs: 12, md: 3 }}>
+                <TextField
+                  select
                   label="Shift Type"
                   name="shiftType"
                   fullWidth
@@ -833,6 +933,18 @@ const now = new Date();
                   required
                 />
               </Grid>
+              <Grid size={{ xs: 12, md: 2 }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={returnTrip}
+                      onChange={e => setReturnTrip(e.target.checked)}
+                      color="primary"
+                    />
+                  }
+                  label="Return"
+                />
+              </Grid>
               <Grid size={{ xs: 12, md: 12 }}>
                 <Button
                   type="submit"
@@ -863,6 +975,19 @@ const now = new Date();
               inputProps={{ style: { cursor: 'pointer' } }}
               onClick={() => dateRefMonth.current?.showPicker()}
             />
+            <TextField
+              select
+              label="Client for Invoice/Statement"
+              value={selectedClient}
+              onChange={e => setSelectedClient(e.target.value)}
+              sx={{ minWidth: 180, mb: { xs: 2, sm: 0 } }}
+              required
+            >
+              <MenuItem value=""><em>Select</em></MenuItem>
+              {clients.map(client => (
+                <MenuItem key={client.value} value={client.value}>{client.label}</MenuItem>
+              ))}
+            </TextField>
             <Box
               sx={{
                 display: 'flex',
@@ -1021,6 +1146,16 @@ const now = new Date();
                 </Snackbar>
           </Box>
           <div style={{ width: '100%' }}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+            <Button
+              variant="contained"
+              color="error"
+              disabled={selectedCount === 0}
+              onClick={() => setBulkDeleteDialogOpen(true)}
+            >
+              Delete Selected
+            </Button>
+          </Box>
             <DataGrid
               rows={filteredTrips.map((trip) => ({
                 ...trip,
@@ -1030,6 +1165,11 @@ const now = new Date();
                 id: trip.id,
                 trip_date: trip.trip_date.split('T')[0]
               }))}
+              checkboxSelection
+              rowSelectionModel={rowSelectionModel}
+              onRowSelectionModelChange={(newModel) => {
+                setRowSelectionModel(newModel);
+              }}
               columns={[
                 { field: 'id', headerName: 'Trip ID', flex: 1 },
                 { field: 'trip_date', headerName: 'Trip Date', flex: 1 },
@@ -1074,6 +1214,31 @@ const now = new Date();
               sx={{ bgcolor: '#fff', borderRadius: 2 }}
               autoHeight
             />
+            <Dialog
+              open={bulkDeleteDialogOpen}
+              onClose={() => setBulkDeleteDialogOpen(false)}
+              maxWidth="xs"
+              fullWidth
+            >
+              <DialogTitle>Confirm Bulk Deletion</DialogTitle>
+              <DialogContent>
+                <Typography>
+                  Are you sure you want to delete {selectedCount} selected trip(s)?
+                </Typography>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setBulkDeleteDialogOpen(false)} disabled={bulkDeleteLoading}>Cancel</Button>
+                <Button
+                  onClick={handleBulkDeleteConfirm}
+                  color="error"
+                  variant="contained"
+                  disabled={bulkDeleteLoading}
+                  startIcon={bulkDeleteLoading ? <CircularProgress size={20} color="inherit" /> : null}
+                >
+                  {bulkDeleteLoading ? 'Deleting...' : 'Delete'}
+                </Button>
+              </DialogActions>
+            </Dialog>
           </div>
           {/* Delete Trip Confirmation Dialog */}
           <Dialog

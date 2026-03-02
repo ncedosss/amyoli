@@ -144,10 +144,10 @@ router.get('/trips', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT t.Id, t.Direction, TO_CHAR(t.Trip_Date, 'YYYY-MM-DD') as Trip_Date, t.Deleted, TO_CHAR(t.Date_Created, 'YYYY-MM-DD') as Date_Created,
-        d.Name as Driver, d.Surname as Surname, s.Name as ShiftType, r.Rate,
+        d.Name as Client, s.Name as ShiftType, r.Rate,
         uc.Username as User_Created, uu.Username as User_Updated
        FROM am."Trip" t
-       JOIN am."Driver" d ON t.DriverId = d.Id
+       JOIN am."Client" d ON t.ClientId = d.Id
        JOIN am."ShiftType" s ON t.ShiftTypeId = s.Id
        JOIN am."ShiftRate" r ON s.Id = r.ShiftTypeId
        LEFT JOIN am."User" uc ON t.User_Created = uc.Id
@@ -191,10 +191,10 @@ router.get('/shift-types', async (req, res) => {
   }
 });
 
-// GET /api/drivers
-router.get('/drivers', async (req, res) => {
+// GET /api/clients
+router.get('/clients', async (req, res) => {
   try {
-    const result = await pool.query('SELECT Id, Name, Surname FROM am."Driver"');
+    const result = await pool.query('SELECT Id, Name FROM am."Client"');
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -214,15 +214,15 @@ router.get('/shift-rates', async (req, res) => {
 // POST /api/trips (add trip)
 router.post('/trips', async (req, res) => {
   try {
-    const { shiftType, direction, driver, tripDate, userCreated } = req.body;
+    const { shiftType, direction, clientid, tripDate, userCreated, returnTrip } = req.body;
     // Get ShiftTypeId
     const shiftTypeResult = await pool.query('SELECT Id FROM am."ShiftType" WHERE Name = $1', [shiftType]);
     if (shiftTypeResult.rows.length === 0) return res.status(400).json({ error: 'Invalid shiftType' });
     const shiftTypeId = shiftTypeResult.rows[0].id;
-    // Get DriverId
-    const driverResult = await pool.query('SELECT Id FROM am."Driver" WHERE Name = $1', [driver]);
-    if (driverResult.rows.length === 0) return res.status(400).json({ error: 'Invalid driver' });
-    const driverId = driverResult.rows[0].id;
+    // Get ClientId
+    const clientResult = await pool.query('SELECT Id FROM am."Client" WHERE Name = $1', [clientid]);
+    if (clientResult.rows.length === 0) return res.status(400).json({ error: 'Invalid client' });
+    const clientId = clientResult.rows[0].id;
     // Get UserId
     let userId = null;
     if (userCreated) {
@@ -231,12 +231,34 @@ router.post('/trips', async (req, res) => {
         userId = userResult.rows[0].id;
       }
     }
-    // Insert Trip
+    // Insert main trip
     const result = await pool.query(
-      'INSERT INTO am."Trip" (ShiftTypeId, Direction, DriverId, Trip_Date, User_Created) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [shiftTypeId, direction, driverId, tripDate, userId]
+      'INSERT INTO am."Trip" (ShiftTypeId, Direction, ClientId, Trip_Date, User_Created) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [shiftTypeId, direction, clientId, tripDate, userId]
     );
-    res.status(201).json(result.rows[0]);
+    let trips = [result.rows[0]];
+    console.log('Return:', returnTrip);
+    // If returnTrip is true, insert return trip with special shiftType logic
+    if (returnTrip) {
+      let returnDirection = direction;
+      let returnShiftType = shiftType;
+      // Direction logic (already handled in frontend, but keep for safety)
+      if (direction === 'To Work') returnDirection = 'To Home';
+      else if (direction === 'To Home') returnDirection = 'To Work';
+      // ShiftType logic
+      if (shiftType === 'csv_toWork') returnShiftType = 'csv_fromWork';
+      else if (shiftType === 'csv_atlantisToWork') returnShiftType = 'csv_atlantisFromWork';
+      // Get ShiftTypeId for return trip
+      const returnShiftTypeResult = await pool.query('SELECT Id FROM am."ShiftType" WHERE Name = $1', [returnShiftType]);
+      if (returnShiftTypeResult.rows.length === 0) return res.status(400).json({ error: 'Invalid return shiftType' });
+      const returnShiftTypeId = returnShiftTypeResult.rows[0].id;
+      const returnResult = await pool.query(
+        'INSERT INTO am."Trip" (ShiftTypeId, Direction, ClientId, Trip_Date, User_Created) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+        [returnShiftTypeId, returnDirection, clientId, tripDate, userId]
+      );
+      trips.push(returnResult.rows[0]);
+    }
+    res.status(201).json(trips.length === 1 ? trips[0] : trips);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -245,16 +267,16 @@ router.post('/trips', async (req, res) => {
 // PUT /api/trips/:id (update trip)
 router.put('/trips/:id', async (req, res) => {
   try {
-    const { shiftType, direction, driver, tripDate, userUpdated } = req.body;
+    const { shiftType, direction, clientid, tripDate, userUpdated } = req.body;
     const { id } = req.params;
     // Get ShiftTypeId
     const shiftTypeResult = await pool.query('SELECT Id FROM am."ShiftType" WHERE Name = $1', [shiftType]);
     if (shiftTypeResult.rows.length === 0) return res.status(400).json({ error: 'Invalid shiftType' });
     const shiftTypeId = shiftTypeResult.rows[0].id;
-    // Get DriverId
-    const driverResult = await pool.query('SELECT Id FROM am."Driver" WHERE Name = $1', [driver]);
-    if (driverResult.rows.length === 0) return res.status(400).json({ error: 'Invalid driver' });
-    const driverId = driverResult.rows[0].id;
+    // Get ClientId
+    const clientResult = await pool.query('SELECT Id FROM am."Client" WHERE Name = $1', [clientid]);
+    if (clientResult.rows.length === 0) return res.status(400).json({ error: 'Invalid client' });
+    const clientId = clientResult.rows[0].id;
     // Get UserId
     let userId = null;
     if (userUpdated) {
@@ -265,8 +287,8 @@ router.put('/trips/:id', async (req, res) => {
     }
     // Update Trip
     const result = await pool.query(
-      'UPDATE am."Trip" SET ShiftTypeId=$1, Direction=$2, DriverId=$3, Trip_Date=$4, Date_Updated=NOW(), User_Updated=$5 WHERE Id=$6 RETURNING *',
-      [shiftTypeId, direction, driverId, tripDate, userId, id]
+      'UPDATE am."Trip" SET ShiftTypeId=$1, Direction=$2, ClientId=$3, Trip_Date=$4, Date_Updated=NOW(), User_Updated=$5 WHERE Id=$6 RETURNING *',
+      [shiftTypeId, direction, clientId, tripDate, userId, id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Trip not found' });
     res.json(result.rows[0]);
@@ -280,6 +302,17 @@ router.post('/invoice', async (req, res) => {
 
   try {
     const { invoiceData } = req.body;
+    // If X-View-Only header is set, do NOT generate or insert a new invoice, just generate a receipt/preview
+    if (req.headers['x-view-only'] === 'true') {
+      // Optionally, you can fetch an existing invoice number if provided, or just generate a receipt preview
+      // If invoiceData.invoiceNo exists, use it for the filename, otherwise use 'receipt'
+      const pdfBuffer = generateInvoice(invoiceData); // Or use a generateReceipt() if you want a different format
+      res.setHeader('Content-Type', 'application/pdf');
+      const filename = invoiceData.invoiceNo ? `receipt_${invoiceData.invoiceNo}.pdf` : 'receipt_preview.pdf';
+      res.setHeader('Content-Disposition', `inline; filename=${filename}`);
+      return res.end(pdfBuffer);
+    }
+    // ...existing code for generating and saving a new invoice...
     let subTotal = 0;
     invoiceData.rows.forEach(row => {
       const qty = Number(row.qty) || 0;
@@ -306,12 +339,6 @@ router.post('/invoice', async (req, res) => {
     }
     // Generate PDF buffer
     const pdfBuffer = generateInvoice(invoiceData);
-    // If X-View-Only header is set, just return the PDF (no email)
-    if (req.headers['x-view-only'] === 'true') {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `inline; filename=invoice_${invoiceNo}.pdf`);
-      return res.end(pdfBuffer);
-    }
     // Otherwise, send email as before
     let emailSent = true;
     try {
