@@ -554,6 +554,7 @@ const now = new Date();
     }));
     const invoiceData = {
       invoiceNo: filterMonth,
+      client: selectedClient,
       rows: invoiceRows
     };
     try {
