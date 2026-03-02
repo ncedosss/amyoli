@@ -391,6 +391,14 @@ function App() {
     e.preventDefault();
     setAddTripLoading(true);
     const qty = Number(tripForm.quantity) || 1;
+    // Compute invoiceMonth from tripForm.tripDate or today
+    let invoiceMonth = '';
+    if (tripForm.tripDate) {
+      invoiceMonth = tripForm.tripDate.substring(0, 7); // 'YYYY-MM'
+    } else {
+      const now = new Date();
+      invoiceMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    }
     for (let i = 0; i < qty; i++) {
       await fetch('/api/trips', {
         method: 'POST',
@@ -401,7 +409,8 @@ function App() {
           clientid: tripForm.clientid,
           returnTrip: returnTrip,
           tripDate: tripForm.tripDate,
-          userCreated: username
+          userCreated: username,
+          invoiceMonth // always send computed invoiceMonth
         })
       });
     }
