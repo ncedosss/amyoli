@@ -400,6 +400,10 @@ function App() {
       invoiceMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     }
     for (let i = 0; i < qty; i++) {
+      // Convert invoiceMonth to 'MonthName YYYY' before sending
+      const [year, month] = invoiceMonth.split('-');
+      const idx = parseInt(month, 10) - 1;
+      const invoiceMonthFormatted = idx >= 0 && idx < 12 ? `${monthNames[idx]} ${year}` : invoiceMonth;
       await fetch('/api/trips', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -410,7 +414,7 @@ function App() {
           returnTrip: returnTrip,
           tripDate: tripForm.tripDate,
           userCreated: username,
-          invoiceMonth // always send computed invoiceMonth
+          invoiceMonth: invoiceMonthFormatted // send as 'MonthName YYYY'
         })
       });
     }
