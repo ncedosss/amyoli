@@ -142,19 +142,25 @@ router.post('/login', async (req, res) => {
 // GET /api/trips
 router.get('/trips', async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT t.Id, t.Direction, TO_CHAR(t.Trip_Date, 'YYYY-MM-DD') as Trip_Date, t.Deleted, TO_CHAR(t.Date_Created, 'YYYY-MM-DD') as Date_Created,
+    const { invoiceMonth } = req.query;
+    let query = `SELECT t.Id, t.Direction, TO_CHAR(t.Trip_Date, 'YYYY-MM-DD') as Trip_Date, t.Deleted, TO_CHAR(t.Date_Created, 'YYYY-MM-DD') as Date_Created,
         d.Name as Client, s.Name as ShiftType, r.Rate,
-        uc.Username as User_Created, uu.Username as User_Updated
+        uc.Username as User_Created, uu.Username as User_Updated,
+        t.Invoice_Month
        FROM am."Trip" t
        JOIN am."Client" d ON t.ClientId = d.Id
        JOIN am."ShiftType" s ON t.ShiftTypeId = s.Id
        JOIN am."ShiftRate" r ON s.Id = r.ShiftTypeId
        LEFT JOIN am."User" uc ON t.User_Created = uc.Id
        LEFT JOIN am."User" uu ON t.User_Updated = uu.Id
-       WHERE t.Deleted = FALSE
-       ORDER BY t.Id DESC`
-    );
+       WHERE t.Deleted = FALSE`;
+    let params = [];
+    if (invoiceMonth) {
+      query += ' AND t.Invoice_Month = $1';
+      params.push(invoiceMonth);
+    }
+    query += ' ORDER BY t.Id DESC';
+    const result = await pool.query(query, params);
     // Format Trip_Date and Date_Created as YYYY-MM-DD to avoid timezone shift
     const rows = result.rows.map(row => ({
       ...row,
@@ -214,7 +220,7 @@ router.get('/shift-rates', async (req, res) => {
 // POST /api/trips (add trip)
 router.post('/trips', async (req, res) => {
   try {
-    const { shiftType, direction, clientid, tripDate, userCreated, returnTrip } = req.body;
+    const { shiftType, direction, clientid, tripDate, userCreated, returnTrip, invoiceMonth } = req.body;
     // Get ShiftTypeId
     const shiftTypeResult = await pool.query('SELECT Id FROM am."ShiftType" WHERE Name = $1', [shiftType]);
     if (shiftTypeResult.rows.length === 0) return res.status(400).json({ error: 'Invalid shiftType' });
@@ -233,28 +239,24 @@ router.post('/trips', async (req, res) => {
     }
     // Insert main trip
     const result = await pool.query(
-      'INSERT INTO am."Trip" (ShiftTypeId, Direction, ClientId, Trip_Date, User_Created) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [shiftTypeId, direction, clientId, tripDate, userId]
+      'INSERT INTO am."Trip" (ShiftTypeId, Direction, ClientId, Trip_Date, User_Created, Invoice_Month) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [shiftTypeId, direction, clientId, tripDate, userId, invoiceMonth]
     );
     let trips = [result.rows[0]];
-    console.log('Return:', returnTrip);
     // If returnTrip is true, insert return trip with special shiftType logic
     if (returnTrip) {
       let returnDirection = direction;
       let returnShiftType = shiftType;
-      // Direction logic (already handled in frontend, but keep for safety)
       if (direction === 'To Work') returnDirection = 'To Home';
       else if (direction === 'To Home') returnDirection = 'To Work';
-      // ShiftType logic
       if (shiftType === 'csv_toWork') returnShiftType = 'csv_fromWork';
       else if (shiftType === 'csv_atlantisToWork') returnShiftType = 'csv_atlantisFromWork';
-      // Get ShiftTypeId for return trip
       const returnShiftTypeResult = await pool.query('SELECT Id FROM am."ShiftType" WHERE Name = $1', [returnShiftType]);
       if (returnShiftTypeResult.rows.length === 0) return res.status(400).json({ error: 'Invalid return shiftType' });
       const returnShiftTypeId = returnShiftTypeResult.rows[0].id;
       const returnResult = await pool.query(
-        'INSERT INTO am."Trip" (ShiftTypeId, Direction, ClientId, Trip_Date, User_Created) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-        [returnShiftTypeId, returnDirection, clientId, tripDate, userId]
+        'INSERT INTO am."Trip" (ShiftTypeId, Direction, ClientId, Trip_Date, User_Created, Invoice_Month) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+        [returnShiftTypeId, returnDirection, clientId, tripDate, userId, invoiceMonth]
       );
       trips.push(returnResult.rows[0]);
     }

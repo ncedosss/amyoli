@@ -521,14 +521,23 @@ const now = new Date();
   const thisMonth = today.substring(0, 7);
   const thisYear = today.substring(0, 4);
   const tripsToday = trips.filter(t => t.trip_date.startsWith(today)).length;
-  const tripsMonth = trips.filter(t => t.trip_date.startsWith(thisMonth)).length;
-  const tripsYear = trips.filter(t => t.trip_date.startsWith(thisYear)).length;
+  const tripsMonth = trips.filter(t => t.invoice_month?.startsWith(thisMonth)).length;
+  const tripsYear = trips.filter(t => t.invoice_month?.startsWith(thisYear)).length;
 
   // Month filter state
   const [filterMonth, setFilterMonth] = useState(thisMonth);
   const filteredTrips = trips.filter(trip => {
-    if (!trip.trip_date) return false;
-    return trip.trip_date.substring(0, 7) === filterMonth;
+    // Accept both 'January 2026' and '2026-01' formats
+    let tripMonth = trip.invoice_month;
+    if (!tripMonth) return false;
+    // If DB value is 'January 2026', convert to '2026-01' for comparison
+    if (monthNames.some(m => tripMonth.startsWith(m))) {
+      tripMonth = monthNameToYYYYMM(tripMonth);
+    }
+    // Filter by month and by selected client (if set)
+    const matchesMonth = tripMonth === filterMonth;
+    const matchesClient = !selectedClient || trip.client === selectedClient;
+    return matchesMonth && matchesClient;
   });
   // Generate invoice by calling backend API and download PDF
   const handleGenerateInvoice = async () => {
@@ -1350,3 +1359,22 @@ const selectedCount =
 }
 
 export default App;
+
+const monthNames = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+// Helper to convert YYYY-MM to 'MonthName YYYY'
+function yyyymmToMonthName(yyyymm: string) {
+  const [year, month] = yyyymm.split('-');
+  const idx = parseInt(month, 10) - 1;
+  return idx >= 0 && idx < 12 ? `${monthNames[idx]} ${year}` : yyyymm;
+}
+
+// Helper to convert 'MonthName YYYY' to YYYY-MM
+function monthNameToYYYYMM(monthName: string) {
+  const [name, year] = monthName.split(' ');
+  const idx = monthNames.findIndex(m => m.toLowerCase() === name.toLowerCase());
+  return idx >= 0 ? `${year}-${String(idx + 1).padStart(2, '0')}` : monthName;
+}
