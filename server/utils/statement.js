@@ -113,26 +113,62 @@ function generateStatement(statementData) {
   y += rowHeight;
 
   // Data row
-  doc.setFillColor(230,230,230);
-  doc.rect(14, y, 181, rowHeight, "F");
-
-  doc.setTextColor(0,0,0);
   doc.setFont("helvetica", "normal");
+doc.setTextColor(0,0,0);
 
-  doc.text(`${new Date().toLocaleDateString()}`, 16, y + 6);
-  doc.text(`INV${statementData.invoice_no || ""}`, 40, y + 6);
-  doc.text(`Charges for invoice INV${statementData.invoice_no || ""}`, 70, y + 6);
+// ---------- 1️⃣ Previous Balance Row ----------
+doc.setFillColor(245,245,245);
+doc.rect(14, y, 181, rowHeight, "F");
 
-  // Debit
-  doc.text("R", 123, y + 6);
-  doc.text(totalAmount.toFixed(2), 148, y + 6, { align: "right" });
+doc.text(`${new Date().toLocaleDateString()}`, 16, y + 6); // Date empty
+doc.text("", 40, y + 6); // Invoice empty
+doc.text("Previous Balance (Forwarded)", 70, y + 6);
 
-  // Credit
-  doc.text("-", 160, y + 6);
+doc.setFont("helvetica", "normal");
+doc.text("", 122, y + 6);
+doc.text("", 152, y + 6);
+doc.text("R", 168, y + 6);
+doc.text("-", 193, y + 6, { align: "right" });
 
-  // Line Total
-  doc.text("R", 168, y + 6);
-  doc.text(totalAmount.toFixed(2), 193, y + 6, { align: "right" });
+y += rowHeight;
+
+
+// ---------- 2️⃣ Invoice Row ----------
+doc.setFillColor(230,230,230);
+doc.rect(14, y, 181, rowHeight, "F");
+
+doc.text(`${new Date().toLocaleDateString()}`, 16, y + 6);
+doc.text(`INV${statementData.invoice_no || ""}`, 40, y + 6);
+doc.text(`New Charges for INV${statementData.invoice_no || ""}`, 70, y + 6);
+
+doc.text("R", 123, y + 6);
+doc.text(totalAmount.toFixed(2), 148, y + 6, { align: "right" });
+
+doc.text("-", 160, y + 6);
+
+doc.text("R", 168, y + 6);
+doc.text(totalAmount.toFixed(2), 193, y + 6, { align: "right" });
+
+y += rowHeight;
+
+
+// ---------- 3️⃣ Overdue Charge Row ----------
+doc.setFillColor(245,245,245);
+doc.rect(14, y, 181, rowHeight, "F");
+
+doc.text(`${new Date().toLocaleDateString()}`, 16, y + 6);
+doc.text("", 40, y + 6);
+doc.text(`INV${statementData.invoice_no || ""} Payment overdue charge (5%)`, 61, y + 6);
+
+doc.text("R", 123, y + 6);
+doc.text("-", 148, y + 6, { align: "right" });
+
+doc.text("-", 160, y + 6);
+
+doc.text("R", 168, y + 6);
+doc.text("-", 193, y + 6, { align: "right" });
+
+y += rowHeight;
 
   const tableBottom = y + rowHeight;
   const tableHeight = 110; // height down to gold section

@@ -104,7 +104,7 @@ function generateInvoice(invoiceData) {
     }
 
     // Right side INVOICE details
-    doc.text(`INV-${invoiceData.invoiceNo || ""}`, 112, 66);
+    doc.text(`${invoiceData.invoiceNo || ""}`, 112, 66);
     doc.text(new Date().toLocaleDateString(), 157, 66);
 
     if (invoiceData.client === "Atlantis Foundaries") {
