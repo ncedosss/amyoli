@@ -397,7 +397,8 @@ router.post('/statement', async (req, res) => {
         to: 'ncedosss@gmail.com',
         subject: 'Your Statement',
         text: 'Please find attached your statement.',
-        pdfBuffer
+        pdfBuffer,
+        filename: 'Account_Statement'
       });
     } catch (err) {
         console.error('Error sending statement email:', err);

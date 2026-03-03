@@ -77,12 +77,16 @@ function generateStatement(statementData) {
     { label: "Credit", value: "-" },
     { label: "Debit", value: totalAmount.toFixed(2) },
     { label: "Total Balance Due", value: totalAmount.toFixed(2) },
-    { label: "Payment Due Date", value: "-" }
+    { label: "Payment Due Date", value: "27/02/2026" }
   ];
 
   summaryRows.forEach(row => {
     doc.text(row.label, 110, summaryY);
-    doc.text("R", 170, summaryY);
+    if (row.label === "Payment Due Date") {
+      doc.text("", 170, summaryY);
+    }else {
+      doc.text("R", 170, summaryY);
+    }
     doc.text(String(row.value), 193, summaryY, { align: "right" });
     summaryY += 8;
   });
@@ -115,7 +119,7 @@ function generateStatement(statementData) {
   doc.setTextColor(0,0,0);
   doc.setFont("helvetica", "normal");
 
-  doc.text("Unknown", 16, y + 6);
+  doc.text(`${new Date().toLocaleDateString()}`, 16, y + 6);
   doc.text(`INV${statementData.invoice_no || ""}`, 40, y + 6);
   doc.text(`Charges for invoice INV${statementData.invoice_no || ""}`, 70, y + 6);
 

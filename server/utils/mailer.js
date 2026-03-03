@@ -12,7 +12,7 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-async function sendInvoiceEmail({ to, subject, text, pdfBuffer }) {
+async function sendInvoiceEmail({ to, subject, text, pdfBuffer, filename }) {
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to,
@@ -20,7 +20,7 @@ async function sendInvoiceEmail({ to, subject, text, pdfBuffer }) {
     text,
     attachments: [
       {
-        filename: 'invoice.pdf',
+        filename: filename || 'invoice.pdf',
         content: pdfBuffer,
         contentType: 'application/pdf'
       }
