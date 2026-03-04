@@ -24,6 +24,10 @@ CssBaseline,
   FormControlLabel,
   InputLabel,
   Checkbox,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemButton,
 } from '@mui/material';
 import Autocomplete from '@mui/material/Autocomplete';
 import { DataGrid, GridColDef, GridRowSelectionModel } from '@mui/x-data-grid';
@@ -87,6 +91,72 @@ function App() {
       const [forgotStep, setForgotStep] = useState(1); // 1: request, 2: reset
       const [forgotLoading, setForgotLoading] = useState(false);
       const [forgotError, setForgotError] = useState('');
+        // Excel Index Configuration state
+        const [excelIndexConfig, setExcelIndexConfig] = useState<{ index: number, client: string }[]>([]);
+        const [excelClientMenuAnchor, setExcelClientMenuAnchor] = useState<null | HTMLElement>(null);
+        const [selectedExcelClient, setSelectedExcelClient] = useState<{ index: number, client: string } | null>(null);
+        const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+        useEffect(() => {
+          fetch('/api/excel-index-configuration')
+            .then(res => res.json())
+            .then(data => setExcelIndexConfig(data));
+        }, []);
+
+        // When Upload Excel button is clicked
+        const handleUploadExcelClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+          setExcelClientMenuAnchor(event.currentTarget);
+        };
+
+        // When client is selected in dropdown
+        const handleExcelClientSelect = (client: { index: number, client: string }) => {
+          setSelectedExcelClient(client);
+          setExcelClientMenuAnchor(null);
+          setTimeout(() => fileInputRef.current?.click(), 0);
+        };
+
+        // When file is chosen
+        const handleTripExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+          const file = e.target.files?.[0];
+          if (!file || !selectedExcelClient) {
+            setSnackbar({ open: true, message: 'Please select a client before uploading.', severity: 'warning' });
+            return;
+          }
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('excelIndex', String(selectedExcelClient.index));
+          formData.append('client', String(selectedExcelClient.client));
+          setUploadTripsLoading(true);
+          try {
+            const res = await fetch('/api/trips/import', {
+              method: 'POST',
+              body: formData
+            });
+            const data = await res.json();
+            if (res.ok) {
+              setSnackbar({ open: true, message: 'Trips imported successfully!', severity: 'success' });
+            } else {
+              setSnackbar({ open: true, message: data.error || 'Import failed', severity: 'error' });
+            }
+          } catch (err) {
+            setSnackbar({ open: true, message: 'Import failed', severity: 'error' });
+          }
+          // Refresh trips after upload
+          fetch('/api/trips')
+            .then(res => res.json())
+            .then(data => setTrips(data.map((trip: any) => ({
+              ...trip,
+              id: trip.id,
+              shiftType: trip.shifttype,
+              tripDate: trip.trip_date,
+              dateCaptured: trip.date_created,
+              direction: trip.direction,
+              userCreated: trip.user_created || '',
+              userUpdated: trip.user_updated || ''
+            }))));
+          setUploadTripsLoading(false);
+          setSelectedExcelClient(null);
+        };
       // ...existing code...
       // Signup logic
       const handleSignupChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -379,6 +449,7 @@ function App() {
 
   // Trip form loading state
   const [addTripLoading, setAddTripLoading] = useState(false);
+  const [uploadTripsLoading, setUploadTripsLoading] = useState(false);
   // Trip form logic
   const handleTripFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setTripForm({ ...tripForm, [e.target.name]: e.target.value });
@@ -978,6 +1049,35 @@ const selectedCount =
                 >
                   {addTripLoading ? 'Adding...' : 'Add Trip'}
                 </Button>
+                <input
+                  accept=".xlsx,.xls"
+                  id="upload-trip-excel"
+                  type="file"
+                  style={{ display: 'none' }}
+                  ref={fileInputRef}
+                  onChange={handleTripExcelUpload}
+                />
+                <Button
+                  variant="contained"
+                  color="success"
+                  sx={{ ml: 2 }}
+                  disabled={uploadTripsLoading}
+                  startIcon={uploadTripsLoading ? <CircularProgress size={20} color="inherit" /> : <i className="fas fa-file-upload" style={{ fontSize: 20 }} />}
+                  onClick={handleUploadExcelClick}
+                >
+                  {uploadTripsLoading ? 'Uploading...' : 'Upload Excel'}
+                </Button>
+                <Menu
+                  anchorEl={excelClientMenuAnchor}
+                  open={Boolean(excelClientMenuAnchor)}
+                  onClose={() => setExcelClientMenuAnchor(null)}
+                >
+                  {excelIndexConfig.map(cfg => (
+                    <MenuItem key={cfg.index} onClick={() => handleExcelClientSelect(cfg)}>
+                      {cfg.client} <span style={{ color: '#888', marginLeft: 8 }}>(Index: {cfg.index})</span>
+                    </MenuItem>
+                  ))}
+                </Menu>
               </Grid>
             </Grid>
           </form>

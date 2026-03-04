@@ -44,6 +44,10 @@ router.post('/request-password-reset', async (req, res) => {
   }
 });
 
+// Excel import dependencies
+const multer = require('multer');
+const xlsx = require('xlsx');
+
 // POST /api/reset-password
 router.post('/reset-password', async (req, res) => {
   try {
@@ -431,6 +435,204 @@ router.get('/invoices', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// POST /api/trips/import (Excel upload)
+const upload = multer({ storage: multer.memoryStorage() });
+router.post('/trips/import', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer', cellDates: true });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    //Convert to 2D array with header:1 to get raw rows, then filter out empty rows
+    const rows = xlsx.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: "",
+      raw: false
+    });
+    const cleanedData = rows.filter(row =>
+      row.some(cell => cell !== "" && cell !== null && cell !== undefined)
+    );
+    if (cleanedData.length === 0) {
+      return res.status(400).json({ error: "Excel file is empty" });
+    }
+    // Header row (first non-empty row)
+    const headerRowIndex = 2;
+    const headerRow = cleanedData[headerRowIndex];
+    // Build date columns ONLY from index 14–18
+    const dateColumns = [];
+
+    for (let i = req.body.excelIndex; i <= req.body.excelIndex + 4; i++) {
+      let headerValue = '';
+      if(req.body.excelIndex === '8'){
+        const unomalizedData = headerRow[i] || '';
+        headerValue = normalizeDate(unomalizedData);
+      } else  if(req.body.excelIndex === '14'){
+        headerValue = headerRow[i] || '';
+      }
+      if (typeof headerValue === "string" && headerValue.match(/\d{2}\/\d{2}/)) {
+        
+        dateColumns.push({
+          date: headerValue,
+          index: i
+        });
+      }
+    }
+    // Count shifts
+    const result = {};
+
+    cleanedData.slice(headerRowIndex + 1).forEach(row => {
+      dateColumns.forEach(({ date, index }) => {
+        const value = row[index];
+
+        if (!result[date]) {
+          result[date] = { D: 0, A: 0, N: 0 };
+        }
+
+        if (value === "D") result[date].D++;
+        if (value === "A") result[date].A++;
+        if (value === "N") result[date].N++;
+      });
+    });
+
+    const tripsPerDay = calculateTripsPerDay(result);
+    const filteredTrips = Object.fromEntries(
+      Object.entries(tripsPerDay).filter(
+        ([, value]) => value.totalTrips > 0
+      )
+    );
+    // Expect columns: shiftType, direction, clientid, tripDate, quantity, returnTrip
+    let imported = 0;
+    const invoiceMonth = getInvoiceMonth();
+    const tripsToInsert = [];
+
+    const shiftTypeMap = {
+      D: 1,
+      A: 2,
+      N: 3
+    };
+
+    Object.entries(filteredTrips).forEach(([date, shifts]) => {
+      const isoDate = convertToISO(date);
+
+      Object.entries(shiftTypeMap).forEach(([shiftKey, shiftTypeId]) => {
+        const taxis = shifts[shiftKey]?.taxis || 0;
+
+        for (let i = 0; i < taxis; i++) {
+
+          // To Work
+          tripsToInsert.push([
+            shiftTypeId,
+            "To Work",
+            1,
+            isoDate,
+            invoiceMonth
+          ]);
+
+          // To Home
+          tripsToInsert.push([
+            shiftTypeId,
+            "To Home",
+            1,
+            isoDate,
+            invoiceMonth
+          ]);
+        }
+      });
+    });
+
+    const query = `
+      INSERT INTO am."Trip"
+      (ShiftTypeId, Direction, ClientId, Trip_Date, Invoice_Month)
+      VALUES ${tripsToInsert.map(
+        (_, i) =>
+          `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
+      ).join(",")}
+    `;
+    const values = tripsToInsert.flat();
+    await pool.query(query, values);
+
+    try {
+      await sendInvoiceEmail({
+        to: 'ncedosss@gmail.com',
+        subject: 'Trips Imported',
+        text: `Please find attached your trips.${JSON.stringify(filteredTrips, null, 2)}`,
+        filename: 'filteredTrips'
+      });
+    } catch (err) {
+        console.error('Error sending trips email:', err);
+    }
+
+    res.json({ success: true, imported,  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/excel-index-configuration
+router.get('/excel-index-configuration', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT index, client FROM am."ExcelIndexConfiguration" ORDER BY client');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+function normalizeDate(dateStr) {
+  if (!dateStr) return null;
+
+  // Example input: "26.01.26"
+  const parts = dateStr.split(".");
+
+  if (parts.length >= 2) {
+    const day = parts[0].padStart(2, "0");
+    const month = parts[1].padStart(2, "0");
+    return `${day}/${month}`;
+  }
+
+  return null;
+}
+function calculateTaxis(count) {
+  if (!count || count <= 0) return 0;
+  return Math.ceil(count / 12);
+}
+function calculateTripsPerDay(shiftCounts) {
+  const result = {};
+
+  Object.entries(shiftCounts).forEach(([date, shifts]) => {
+    const taxisD = calculateTaxis(shifts.D);
+    const taxisA = calculateTaxis(shifts.A);
+    const taxisN = calculateTaxis(shifts.N);
+
+    result[date] = {
+      D: {
+        people: shifts.D,
+        taxis: taxisD
+      },
+      A: {
+        people: shifts.A,
+        taxis: taxisA
+      },
+      N: {
+        people: shifts.N,
+        taxis: taxisN
+      },
+      totalTrips: taxisD + taxisA + taxisN
+    };
+  });
+
+  return result;
+}
+function convertToISO(dateStr) {
+  const [day, month] = dateStr.split("/");
+  const year = new Date().getFullYear();
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+function getInvoiceMonth() {
+  const now = new Date();
+  now.setMonth(now.getMonth() - 1);
+  return now.toLocaleString("en-US", { month: "long", year: "numeric" });
+}
 
 
 module.exports = router;
