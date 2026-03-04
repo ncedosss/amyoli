@@ -630,7 +630,7 @@ function convertToISO(dateStr) {
 }
 function getInvoiceMonth() {
   const now = new Date();
-  now.setMonth(now.getMonth() - 1);
+  now.setMonth(now.getMonth());
   return now.toLocaleString("en-US", { month: "long", year: "numeric" });
 }
 
