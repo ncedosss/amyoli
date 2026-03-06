@@ -461,41 +461,61 @@ router.post('/trips/import', upload.single('file'), async (req, res) => {
     const headerRow = cleanedData[headerRowIndex];
     // Build date columns ONLY from index 14–18
     const dateColumns = [];
+    const weekendHeaderRowIndex = 1;
+    const weekendDateColumns = [];
+    const weekendHeaderRow = cleanedData[weekendHeaderRowIndex];
+    const excelIndex = Number(req.body.excelIndex);
+    let result = {};
+    let tripsPerDay = {};
+    if(req.body.excelIndex !== '8' && req.body.excelIndex !== '14' && req.body.excelIndex === '15'){
+      for (let i = excelIndex; i <= excelIndex + 5; i += 5) {
 
-    for (let i = req.body.excelIndex; i <= req.body.excelIndex + 4; i++) {
-      let headerValue = '';
-      if(req.body.excelIndex === '8'){
-        const unomalizedData = headerRow[i] || '';
-        headerValue = normalizeDate(unomalizedData);
-      } else  if(req.body.excelIndex === '14'){
-        headerValue = headerRow[i] || '';
-      }
-      if (typeof headerValue === "string" && headerValue.match(/\d{2}\/\d{2}/)) {
-        
-        dateColumns.push({
-          date: headerValue,
-          index: i
-        });
-      }
-    }
-    // Count shifts
-    const result = {};
+        const headerValue = weekendHeaderRow[i];
+        if (typeof headerValue === "string" && headerValue.match(/\d{2}\/\d{2}/)) {
 
-    cleanedData.slice(headerRowIndex + 1).forEach(row => {
-      dateColumns.forEach(({ date, index }) => {
-        const value = row[index];
+          weekendDateColumns.push({
+            date: headerValue,
+            startIndex: i
+          });
 
-        if (!result[date]) {
-          result[date] = { D: 0, A: 0, N: 0 };
         }
+      }
+      result = getWeekendResults(cleanedData, weekendDateColumns, headerRowIndex);
+      tripsPerDay = calculateTripsPerDay(result);
+    }else{
+      for (let i = req.body.excelIndex; i <= req.body.excelIndex + 4; i++) {
+        let headerValue = '';
+        if(req.body.excelIndex === '8'){
+          const unomalizedData = headerRow[i] || '';
+          headerValue = normalizeDate(unomalizedData);
+        } else  if(req.body.excelIndex === '14'){
+          headerValue = headerRow[i] || '';
+        }
+        if (typeof headerValue === "string" && headerValue.match(/\d{2}\/\d{2}/)) {
+          
+          dateColumns.push({
+            date: headerValue,
+            index: i
+          });
+        }
+      }
+      // Count shifts
 
-        if (value === "D") result[date].D++;
-        if (value === "A") result[date].A++;
-        if (value === "N") result[date].N++;
+      cleanedData.slice(headerRowIndex + 1).forEach(row => {
+        dateColumns.forEach(({ date, index }) => {
+          const value = row[index];
+
+          if (!result[date]) {
+            result[date] = { D: 0, A: 0, N: 0 };
+          }
+
+          if (value === "D") result[date].D++;
+          if (value === "A") result[date].A++;
+          if (value === "N") result[date].N++;
+        });
       });
-    });
-
-    const tripsPerDay = calculateTripsPerDay(result);
+      tripsPerDay = calculateTripsPerDay(result, 'normal');
+    }
     const filteredTrips = Object.fromEntries(
       Object.entries(tripsPerDay).filter(
         ([, value]) => value.totalTrips > 0
@@ -506,21 +526,37 @@ router.post('/trips/import', upload.single('file'), async (req, res) => {
     const invoiceMonth = getInvoiceMonth();
     const tripsToInsert = [];
 
-    const shiftTypeMap = {
-      D: 1,
-      A: 2,
-      N: 3
-    };
+    let shiftTypeMap = {};
+    if(req.body.excelIndex === '15'){
+      shiftTypeMap = {
+        D: 5,
+        A: 5,
+        N: 5,
+        "77": 6
+      };
+    }else{
+      shiftTypeMap = {
+        D: 1,
+        A: 2,
+        N: 3,
+        Staff: 7
+      };
+    }
 
-    Object.entries(filteredTrips).forEach(([date, shifts]) => {
-      const isoDate = convertToISO(date);
+  Object.entries(filteredTrips).forEach(([date, shifts]) => {
 
-      Object.entries(shiftTypeMap).forEach(([shiftKey, shiftTypeId]) => {
-        const taxis = shifts[shiftKey]?.taxis || 0;
+    const isoDate = convertToISO(date);
 
-        for (let i = 0; i < taxis; i++) {
+    Object.entries(shiftTypeMap).forEach(([shiftKey, shiftTypeId]) => {
 
-          // To Work
+      // DAY SHIFT (special logic)
+      if (shiftKey === "D") {
+
+        const toWorkTrips = shifts.D?.toWorkTrips || 0;
+        const toHomeTrips = shifts.D?.toHomeTrips || 0;
+
+        // To Work
+        for (let i = 0; i < toWorkTrips; i++) {
           tripsToInsert.push([
             shiftTypeId,
             "To Work",
@@ -528,8 +564,10 @@ router.post('/trips/import', upload.single('file'), async (req, res) => {
             isoDate,
             invoiceMonth
           ]);
+        }
 
-          // To Home
+        // To Home
+        for (let i = 0; i < toHomeTrips; i++) {
           tripsToInsert.push([
             shiftTypeId,
             "To Home",
@@ -538,9 +576,55 @@ router.post('/trips/import', upload.single('file'), async (req, res) => {
             invoiceMonth
           ]);
         }
-      });
+
+        return;
+      }
+
+      // STAFF SHIFT
+      if (shiftKey === "Staff") {
+
+        const staffTrips = shifts.Staff?.trips || 0;
+
+        for (let i = 0; i < staffTrips; i++) {
+          tripsToInsert.push([
+            shiftTypeId,
+            "To Home",
+            1,
+            isoDate,
+            invoiceMonth
+          ]);
+        }
+
+        return;
+      }
+
+      // NORMAL SHIFTS (A, N, 77)
+      const taxis = shifts[shiftKey]?.taxis || 0;
+
+      for (let i = 0; i < taxis; i++) {
+
+        // To Work
+        tripsToInsert.push([
+          shiftTypeId,
+          "To Work",
+          1,
+          isoDate,
+          invoiceMonth
+        ]);
+
+        // To Home
+        tripsToInsert.push([
+          shiftTypeId,
+          "To Home",
+          1,
+          isoDate,
+          invoiceMonth
+        ]);
+      }
+
     });
 
+  });
     const query = `
       INSERT INTO am."Trip"
       (ShiftTypeId, Direction, ClientId, Trip_Date, Invoice_Month)
@@ -596,29 +680,68 @@ function calculateTaxis(count) {
   if (!count || count <= 0) return 0;
   return Math.ceil(count / 12);
 }
-function calculateTripsPerDay(shiftCounts) {
+function calculateTripsPerDay(shiftCounts, shiftType = '') {
+
   const result = {};
 
   Object.entries(shiftCounts).forEach(([date, shifts]) => {
+
     const taxisD = calculateTaxis(shifts.D);
     const taxisA = calculateTaxis(shifts.A);
     const taxisN = calculateTaxis(shifts.N);
+    const taxis77 = calculateTaxis(shifts["77"]);
+
+    let toWorkD = taxisD;
+    let toHomeD = taxisD;
+
+    let staffTrips = 0;
+
+    if (shiftType === "normal" && taxisD >= 2) {
+      toHomeD = taxisD - 1;   // one taxi does not return
+      staffTrips = 1;         // that taxi goes to fetch staff
+    }
 
     result[date] = {
+
       D: {
         people: shifts.D,
-        taxis: taxisD
+        taxis: taxisD,
+        toWorkTrips: toWorkD,
+        toHomeTrips: toHomeD
       },
+
       A: {
         people: shifts.A,
-        taxis: taxisA
+        taxis: taxisA,
+        trips: taxisA * 2
       },
+
       N: {
         people: shifts.N,
-        taxis: taxisN
+        taxis: taxisN,
+        trips: taxisN * 2
       },
-      totalTrips: taxisD + taxisA + taxisN
+
+      "77": {
+        people: shifts["77"],
+        taxis: taxis77,
+        trips: taxis77 * 2
+      },
+
+      Staff: {
+        people: "unknown",
+        taxis: staffTrips,
+        trips: staffTrips
+      },
+
+      totalTrips:
+        (toWorkD + toHomeD) +
+        (taxisA * 2) +
+        (taxisN * 2) +
+        (taxis77 * 2) +
+        staffTrips
     };
+
   });
 
   return result;
@@ -632,6 +755,32 @@ function getInvoiceMonth() {
   const now = new Date();
   now.setMonth(now.getMonth());
   return now.toLocaleString("en-US", { month: "long", year: "numeric" });
+}
+function getWeekendResults(cleanedData, weekendDateColumns, headerRowIndex) {
+  const weekendResult = {};
+
+  cleanedData.slice(headerRowIndex + 1).forEach(row => {
+
+    weekendDateColumns.forEach(({ date, startIndex }) => {
+
+      if (!weekendResult[date]) {
+        weekendResult[date] = { D: 0, A: 0, N: 0, 77: 0 };
+      }
+
+      if (row[startIndex] === "ON") weekendResult[date].D++;
+
+      if (row[startIndex + 1] === "ON") weekendResult[date].A++;
+
+      if (row[startIndex + 2] === "ON") weekendResult[date].N++;
+
+      if (row[startIndex + 3] === "ON") weekendResult[date]["77"]++;
+
+      if (row[startIndex + 4] === "ON") weekendResult[date]["77"]++;
+
+    });
+
+  });
+  return weekendResult;
 }
 
 
