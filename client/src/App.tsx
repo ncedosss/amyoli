@@ -1009,7 +1009,6 @@ const selectedCount =
                   required
                   inputRef={dateRef}
                   inputProps={{
-                    max: new Date().toLocaleDateString("en-CA"), // ✅ prevents future dates
                     style: { cursor: 'pointer' }
                   }}
                   onClick={() => dateRef.current?.showPicker()}
