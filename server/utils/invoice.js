@@ -95,7 +95,7 @@ function generateInvoice(invoiceData) {
       doc.text("Atlantis Industria, Atlantis", 14, 85);
       doc.text("7349", 14, 90);
       doc.text("Vat No. 4950102162", 14, 95);
-    } else if (invoiceData.client === "CSV") {
+    } else if (invoiceData.client === "CSV" || invoiceData.client === "Lesedi CSV") {
       doc.text("ATT: Errol Sedras", 14, 70);
       doc.text("CSV Construction (PTY) LTD", 14, 75);
       doc.text("487 Old Main Road", 14, 80);
@@ -109,7 +109,7 @@ function generateInvoice(invoiceData) {
 
     if (invoiceData.client === "Atlantis Foundaries") {
       doc.text("AF005", 112, 81);
-    } else if (invoiceData.client === "CSV") {
+    } else if (invoiceData.client === "CSV" || invoiceData.client === "Lesedi CSV") {
       doc.text("-", 112, 81);
     }
     doc.text("On Receipt", 157, 81);
@@ -127,14 +127,21 @@ function generateInvoice(invoiceData) {
       95,
       { align: "right" }
     );
-  }else if (invoiceData.client === "CSV") {
-    doc.text(
-      "EMPLOYEE TRANSPORT - WITSAND/ATLANTIS ROUTE",
-      195,
-      95,
-      { align: "right" }
-    );
-  }
+    }else if (invoiceData.client === "CSV") {
+      doc.text(
+        "EMPLOYEE TRANSPORT - WITSAND/ATLANTIS ROUTE",
+        195,
+        95,
+        { align: "right" }
+      );
+    }else if (invoiceData.client === "Lesedi CSV") {
+      doc.text(
+        "EMPLOYEE TRANSPORT - SAMORA ROUTE",
+        195,
+        95,
+        { align: "right" }
+      );
+    }
 
   // ======================
   // TABLE HEADER
