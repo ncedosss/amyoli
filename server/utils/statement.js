@@ -77,7 +77,7 @@ function generateStatement(statementData) {
     { label: "Credit", value: "-" },
     { label: "Debit", value: totalAmount.toFixed(2) },
     { label: "Total Balance Due", value: totalAmount.toFixed(2) },
-    { label: "Payment Due Date", value: "27/02/2026" }
+    { label: "Payment Due Date", value: "31/12/2025" }
   ];
 
   summaryRows.forEach(row => {
