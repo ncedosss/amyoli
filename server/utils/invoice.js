@@ -95,7 +95,7 @@ function generateInvoice(invoiceData) {
       doc.text("Atlantis Industria, Atlantis", 14, 85);
       doc.text("7349", 14, 90);
       doc.text("Vat No. 4950102162", 14, 95);
-    } else if (invoiceData.client === "CSV" || invoiceData.client === "Lesedi CSV") {
+    } else if (invoiceData.client === "CSV" || invoiceData.client === "Lesedi CSV" || invoiceData.client === 'Lesedi Ellegent 850') {
       doc.text("ATT: Errol Sedras", 14, 70);
       doc.text("CSV Construction (PTY) LTD", 14, 75);
       doc.text("487 Old Main Road", 14, 80);
