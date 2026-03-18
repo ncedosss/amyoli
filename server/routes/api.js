@@ -251,12 +251,17 @@ router.post('/trips', async (req, res) => {
     if (returnTrip) {
       let returnDirection = direction;
       let returnShiftType = shiftType;
+      const shiftMap = {
+        csv_toWork: 'csv_fromWork',
+        csv_atlantisToWork: 'csv_atlantisFromWork',
+        lesedi_toWork: 'lesedi_toHome',
+        lesediPainters_ToWork: 'lesediPainters_ToHome',
+      };
       if (direction === 'To Work') returnDirection = 'To Home';
       else if (direction === 'To Home') returnDirection = 'To Work';
       
-      if (shiftType === 'csv_toWork') returnShiftType = 'csv_fromWork';
-      else if (shiftType === 'csv_atlantisToWork') returnShiftType = 'csv_atlantisFromWork';
-      else if (shiftType === 'lesedi_toWork') returnShiftType = 'lesedi_toHome';
+      returnShiftType = shiftMap[shiftType] ?? shiftType;
+
       const returnShiftTypeResult = await pool.query('SELECT Id FROM am."ShiftType" WHERE Name = $1', [returnShiftType]);
       if (returnShiftTypeResult.rows.length === 0) return res.status(400).json({ error: 'Invalid return shiftType' });
       const returnShiftTypeId = returnShiftTypeResult.rows[0].id;

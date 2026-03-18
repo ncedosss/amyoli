@@ -101,6 +101,12 @@ function generateInvoice(invoiceData) {
       doc.text("487 Old Main Road", 14, 80);
       doc.text("Firgrove, Somerset West", 14, 85);
       doc.text("7130", 14, 90);
+    } else if (invoiceData.client === "Lesedi Painters R400") {
+      doc.text("ATT: Wendy Morgan", 14, 70);
+      doc.text("LESEDI NUCLEAR SERVICES PTY LTD", 14, 75);
+      doc.text("Cape Town", 14, 80);
+      doc.text("South Africa", 14, 85);
+      doc.text("VAT No. 4460195755", 14, 90);
     }
 
     // Right side INVOICE details
