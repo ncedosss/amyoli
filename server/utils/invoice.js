@@ -117,6 +117,8 @@ function generateInvoice(invoiceData) {
       doc.text("AF005", 112, 81);
     } else if (invoiceData.client === "CSV" || invoiceData.client === "Lesedi CSV") {
       doc.text("-", 112, 81);
+    } else if (invoiceData.client === "Lesedi Painters R400") {
+      doc.text("LNS010", 112, 81);
     }
     doc.text("On Receipt", 157, 81);
 
