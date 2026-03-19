@@ -326,6 +326,11 @@ router.post('/invoice', async (req, res) => {
       return res.end(pdfBuffer);
     }
     // ...existing code for generating and saving a new invoice...
+    const clientMap = {
+      'Lesedi Painters R400': 'LNS010',
+      'Atlantis Foundaries': 'AF005',
+    };
+    const customerId = clientMap[invoiceData.client] || 'UNKNOWN';
     let subTotal = 0;
     invoiceData.rows.forEach(row => {
       const qty = Number(row.qty) || 0;
@@ -333,12 +338,13 @@ router.post('/invoice', async (req, res) => {
       const lineTotal = qty * rate;
       subTotal += lineTotal;
     });
+
     // Insert into Invoice table
     const invoiceInsertResult = await pool.query(
-      `INSERT INTO am."Invoice" (Total_Amount)
-       VALUES ($1)
+      `INSERT INTO am."Invoice" (Customer_Id, Invoice_No, Total_Amount)
+       VALUES ($1, $2, $3)
        RETURNING Invoice_No,id`,
-      [subTotal]
+      [customerId, invoiceData.invoiceNo, subTotal]
     );
     const invoiceNo = invoiceInsertResult.rows[0].invoice_no;
     const invoiceId = invoiceInsertResult.rows[0].id;
