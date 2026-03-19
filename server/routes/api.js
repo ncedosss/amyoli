@@ -343,7 +343,7 @@ router.post('/invoice', async (req, res) => {
     const invoiceInsertResult = await pool.query(
       `INSERT INTO am."Invoice" (Customer_Id, Total_Amount)
       VALUES ($1, $2)
-      RETURNING "Invoice_No", id`,
+      RETURNING "invoice_no", id`,
       [customerId, subTotal]
     );
     const invoiceNo = invoiceInsertResult.rows[0].invoice_no;
