@@ -215,6 +215,7 @@ function App() {
     const [invoices, setInvoices] = useState<any[]>([]);
     const [statementDialogOpen, setStatementDialogOpen] = useState(false);
     const [selectedInvoiceNo, setSelectedInvoiceNo] = useState('');
+    const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
     const [statementLoading, setStatementLoading] = useState(false);
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const openMenu = Boolean(anchorEl);
@@ -312,7 +313,7 @@ function App() {
         const response = await fetch('/api/statement', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ invoiceNo: selectedInvoiceNo, client: selectedClient })
+          body: JSON.stringify({ invoiceId: selectedInvoiceId, invoiceNo: selectedInvoiceNo, client: selectedClient })
         });
         if (!response.ok) throw new Error('Failed to generate statement');
 
@@ -336,6 +337,7 @@ function App() {
         setStatementLoading(false);
         setStatementDialogOpen(false);
         setSelectedInvoiceNo('');
+        setSelectedInvoiceId('');
       }
     };
 
@@ -1232,7 +1234,10 @@ const selectedCount =
                   options={invoices}
                   getOptionLabel={inv => `INV${inv.invoice_no} - ${inv.invoice_date}`}
                   value={invoices.find(inv => inv.invoice_no === selectedInvoiceNo) || null}
-                  onChange={(_, value) => setSelectedInvoiceNo(value ? value.invoice_no : '')}
+                  onChange={(_, value) => {
+                    setSelectedInvoiceNo(value ? value.invoice_no : '');
+                    setSelectedInvoiceId(value ? value.id : '');
+                  }}
                   renderInput={params => (
                     <TextField {...params} label="Select Invoice" fullWidth sx={{ mt: 2 }} />
                   )}

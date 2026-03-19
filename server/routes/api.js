@@ -337,17 +337,19 @@ router.post('/invoice', async (req, res) => {
     const invoiceInsertResult = await pool.query(
       `INSERT INTO am."Invoice" (Total_Amount)
        VALUES ($1)
-       RETURNING Invoice_No`,
+       RETURNING Invoice_No,id`,
       [subTotal]
     );
     const invoiceNo = invoiceInsertResult.rows[0].invoice_no;
+    const invoiceId = invoiceInsertResult.rows[0].id;
+
     invoiceData.invoiceNo = 'INV' + invoiceNo;
     // Insert each row into Invoice_Detail table
     for (const row of invoiceData.rows) {
       await pool.query(
-        `INSERT INTO am."Invoice_Detail" (Invoice_No, Description, Rate, Qty, Amount)
+        `INSERT INTO am."Invoice_Detail" (id, Description, Rate, Qty, Amount)
          VALUES ($1, $2, $3, $4, $5)`,
-        [invoiceNo, row.description, row.rate, row.qty, row.qty * row.rate]
+        [invoiceId, row.description, row.rate, row.qty, row.qty * row.rate]
       );
     }
     // Generate PDF buffer
@@ -379,15 +381,15 @@ router.post('/invoice', async (req, res) => {
 // POST /api/statement
 router.post('/statement', async (req, res) => {
   try {
-    const { invoiceNo } = req.body;
-    if (!invoiceNo) {
-      return res.status(400).json({ error: 'invoiceNo is required' });
+    const { invoiceId, invoiceNo } = req.body;
+    if (!invoiceId || !invoiceNo) {
+      return res.status(400).json({ error: 'invoiceId and invoiceNo are required' });
     }
 
     // Fetch invoice
     const invoiceResult = await pool.query(
-      'SELECT * FROM am."Invoice" WHERE Invoice_No = $1',
-      [invoiceNo]
+      'SELECT * FROM am."Invoice" WHERE id = $1',
+      [invoiceId]
     );
     if (invoiceResult.rows.length === 0) {
       return res.status(404).json({ error: 'Invoice not found' });
