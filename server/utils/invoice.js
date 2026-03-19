@@ -149,7 +149,7 @@ function generateInvoice(invoiceData) {
       );
     }else if (invoiceData.client === "Lesedi Painters R400") {
       doc.text(
-        "NB: WVC (Painters) POL059871",
+        "NB: WVC (Painters)",
         195,
         95,
         { align: "right" }
