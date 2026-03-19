@@ -329,6 +329,7 @@ router.post('/invoice', async (req, res) => {
     const clientMap = {
       'Lesedi Painters R400': 'LNS010',
       'Atlantis Foundaries': 'AF005',
+      'Lesedi CSV': 'LNS010'
     };
     const customerId = clientMap[invoiceData.client] || 'UNKNOWN';
     let subTotal = 0;
