@@ -353,7 +353,7 @@ router.post('/invoice', async (req, res) => {
     // Insert each row into Invoice_Detail table
     for (const row of invoiceData.rows) {
       await pool.query(
-        `INSERT INTO am."Invoice_Detail" (id, Description, Rate, Qty, Amount)
+        `INSERT INTO am."Invoice_Detail" (invoice_id, Description, Rate, Qty, Amount)
          VALUES ($1, $2, $3, $4, $5)`,
         [invoiceId, row.description, row.rate, row.qty, row.qty * row.rate]
       );
