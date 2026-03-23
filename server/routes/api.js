@@ -150,7 +150,7 @@ router.get('/trips', async (req, res) => {
     let query = `SELECT t.Id, t.Direction, TO_CHAR(t.Trip_Date, 'YYYY-MM-DD') as Trip_Date, t.Deleted, TO_CHAR(t.Date_Created, 'YYYY-MM-DD') as Date_Created,
         d.Name as Client, s.Name as ShiftType, r.Rate,
         uc.Username as User_Created, uu.Username as User_Updated,
-        t.Invoice_Month
+        t.Invoice_Month, t.invoice_id
        FROM am."Trip" t
        JOIN am."Client" d ON t.ClientId = d.Id
        JOIN am."ShiftType" s ON t.ShiftTypeId = s.Id
@@ -171,7 +171,8 @@ router.get('/trips', async (req, res) => {
       Trip_Date: row.Trip_Date ? row.Trip_Date.toISOString?.().slice(0, 10) || row.Trip_Date : null,
       Date_Created: row.Date_Created ? row.Date_Created.toISOString?.().slice(0, 10) || row.Date_Created : null,
       user_created: row.user_created || row.user_created || '',
-      user_updated: row.user_updated || row.user_updated || ''
+      user_updated: row.user_updated || row.user_updated || '',
+      invoice_id: row.invoice_id || null
     }));
     res.json(rows);
   } catch (err) {
