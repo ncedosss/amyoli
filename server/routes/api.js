@@ -314,7 +314,7 @@ router.put('/trips/:id', async (req, res) => {
 router.post('/invoice', async (req, res) => {
 
   try {
-    const { invoiceData } = req.body;
+    const { invoiceData, tripIds } = req.body;
     // If X-View-Only header is set, do NOT generate or insert a new invoice, just generate a receipt/preview
     if (req.headers['x-view-only'] === 'true') {
       // Optionally, you can fetch an existing invoice number if provided, or just generate a receipt preview
@@ -340,25 +340,54 @@ router.post('/invoice', async (req, res) => {
       subTotal += lineTotal;
     });
 
-    // Insert into Invoice table
-    const invoiceInsertResult = await pool.query(
-      `INSERT INTO am."Invoice" (Customer_Id, Total_Amount)
-      VALUES ($1, $2)
-      RETURNING "invoice_no", id`,
-      [customerId, subTotal]
-    );
-    const invoiceNo = invoiceInsertResult.rows[0].invoice_no;
-    const invoiceId = invoiceInsertResult.rows[0].id;
+    const existing = await pool.query(`
+      SELECT id FROM am."Trip"
+      WHERE id = ANY($1::int[])
+      AND invoice_id IS NOT NULL
+    `, [tripIds]);
 
-    invoiceData.invoiceNo = 'INV' + invoiceNo;
-    // Insert each row into Invoice_Detail table
-    for (const row of invoiceData.rows) {
-      await pool.query(
-        `INSERT INTO am."Invoice_Detail" (invoice_id, Description, Rate, Qty, Amount)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [invoiceId, row.description, row.rate, row.qty, row.qty * row.rate]
-      );
+    if (existing.rows.length > 0) {
+      return res.status(400).json({
+        error: 'Some trips are already invoiced'
+      });
     }
+    await pool.query('BEGIN');
+    try {
+      // insert invoice
+      // Insert into Invoice table
+      const invoiceInsertResult = await pool.query(
+        `INSERT INTO am."Invoice" (Customer_Id, Total_Amount)
+        VALUES ($1, $2)
+        RETURNING "invoice_no", id`,
+        [customerId, subTotal]
+      );
+      const invoiceNo = invoiceInsertResult.rows[0].invoice_no;
+      const invoiceId = invoiceInsertResult.rows[0].id;
+      // insert details
+      invoiceData.invoiceNo = 'INV' + invoiceNo;
+      // Insert each row into Invoice_Detail table
+      for (const row of invoiceData.rows) {
+        await pool.query(
+          `INSERT INTO am."Invoice_Detail" (invoice_id, Description, Rate, Qty, Amount)
+          VALUES ($1, $2, $3, $4, $5)`,
+          [invoiceId, row.description, row.rate, row.qty, row.qty * row.rate]
+        );
+      }
+      // update trips
+      if (tripIds && tripIds.length > 0) {
+        await pool.query(`
+          UPDATE am."Trip"
+          SET invoice_id = $1
+          WHERE id = ANY($2::int[])
+          AND invoice_id IS NULL
+        `, [invoiceId, tripIds]);
+      }
+      await pool.query('COMMIT');
+    } catch (err) {
+      await pool.query('ROLLBACK');
+      throw err;
+    }
+
     // Generate PDF buffer
     const pdfBuffer = generateInvoice(invoiceData);
     // Otherwise, send email as before

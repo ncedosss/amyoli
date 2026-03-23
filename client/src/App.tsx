@@ -28,6 +28,7 @@ CssBaseline,
   ListItem,
   ListItemText,
   ListItemButton,
+  Switch,
 } from '@mui/material';
 import Autocomplete from '@mui/material/Autocomplete';
 import { DataGrid, GridColDef, GridRowSelectionModel } from '@mui/x-data-grid';
@@ -56,6 +57,7 @@ function App() {
       const [viewInvoiceOpen, setViewInvoiceOpen] = useState(false);
       const [invoicePdfUrl, setInvoicePdfUrl] = useState<string | null>(null);
       const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
+      const [showInvoiced, setShowInvoiced] = useState(false);
 
       //Bulk delete state
       const [rowSelectionModel, setRowSelectionModel] =
@@ -613,20 +615,34 @@ const now = new Date();
   // Month filter state
   const [filterMonth, setFilterMonth] = useState(thisMonth);
   const filteredTrips = trips.filter(trip => {
-    // Accept both 'January 2026' and '2026-01' formats
     let tripMonth = trip.invoice_month;
     if (!tripMonth) return false;
-    // If DB value is 'January 2026', convert to '2026-01' for comparison
+
     if (monthNames.some(m => tripMonth.startsWith(m))) {
       tripMonth = monthNameToYYYYMM(tripMonth);
     }
-    // Filter by month and by selected client (if set)
+
     const matchesMonth = tripMonth === filterMonth;
     const matchesClient = !selectedClient || trip.client === selectedClient;
-    return matchesMonth && matchesClient;
+
+    const isInvoiced = !!trip.invoice_id;
+
+    const matchesInvoiceFilter = showInvoiced
+      ? isInvoiced
+      : !isInvoiced;
+
+    return matchesMonth && matchesClient && matchesInvoiceFilter;
   });
   // Generate invoice by calling backend API and download PDF
   const handleGenerateInvoice = async () => {
+    if (showInvoiced) {
+      setSnackbar({
+        open: true,
+        message: 'Cannot generate invoice for already invoiced trips',
+        severity: 'warning'
+      });
+      return;
+    }
     setInvoiceLoading(true);
     // Prepare invoice data for backend
     type SummaryRow = { label: string; qty: number; rate: number };
@@ -652,11 +668,14 @@ const now = new Date();
       client: selectedClient,
       rows: invoiceRows
     };
+    const tripIds = filteredTrips
+      .filter(trip => trip.client === selectedClient)
+      .map(trip => trip.id);
     try {
       const response = await fetch('/api/invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceData })
+        body: JSON.stringify({ invoiceData, tripIds })
       });
       if (!response.ok) throw new Error('Failed to generate invoice');
       const data = await response.json();
@@ -1224,6 +1243,15 @@ const selectedCount =
               <MenuItem onClick={() => handleMenuSelect('invoice')}>Generate Invoice</MenuItem>
               <MenuItem onClick={() => handleMenuSelect('statement')}>Generate Statement</MenuItem>
             </Menu>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={showInvoiced}
+                  onChange={(e) => setShowInvoiced(e.target.checked)}
+                />
+              }
+              label={showInvoiced ? "Invoiced Trips" : "Uninvoiced Trips"}
+            />
             <Dialog open={statementDialogOpen} onClose={(_, reason) => {
               if (reason === 'backdropClick' || reason === 'escapeKeyDown') return;
               setStatementDialogOpen(false);
