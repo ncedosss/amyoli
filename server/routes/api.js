@@ -255,8 +255,9 @@ router.post('/trips', async (req, res) => {
       const shiftMap = {
         csv_toWork: 'csv_fromWork',
         csv_atlantisToWork: 'csv_atlantisFromWork',
-        lesedi_toWork: 'lesedi_toHome',
+        lesedi_ToWork: 'lesedi_ToHome',
         lesediPainters_ToWork: 'lesediPainters_ToHome',
+        lesedi_Ellegent_toWork: 'lesedi_Ellegent_toHome',
       };
       if (direction === 'To Work') returnDirection = 'To Home';
       else if (direction === 'To Home') returnDirection = 'To Work';
