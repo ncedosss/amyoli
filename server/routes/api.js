@@ -352,6 +352,8 @@ router.post('/invoice', async (req, res) => {
         error: 'Some trips are already invoiced'
       });
     }
+    let invoiceNo;
+    let invoiceId;
     await pool.query('BEGIN');
     try {
       // insert invoice
@@ -362,8 +364,8 @@ router.post('/invoice', async (req, res) => {
         RETURNING "invoice_no", id`,
         [customerId, subTotal]
       );
-      const invoiceNo = invoiceInsertResult.rows[0].invoice_no;
-      const invoiceId = invoiceInsertResult.rows[0].id;
+      invoiceNo = invoiceInsertResult.rows[0].invoice_no;
+      invoiceId = invoiceInsertResult.rows[0].id;
       // insert details
       invoiceData.invoiceNo = 'INV' + invoiceNo;
       // Insert each row into Invoice_Detail table
