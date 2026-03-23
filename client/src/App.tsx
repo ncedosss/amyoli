@@ -154,7 +154,8 @@ function App() {
               dateCaptured: trip.date_created,
               direction: trip.direction,
               userCreated: trip.user_created || '',
-              userUpdated: trip.user_updated || ''
+              userUpdated: trip.user_updated || '',
+              invoice_id: trip.invoice_id || null
             }))));
           setUploadTripsLoading(false);
           setSelectedExcelClient(null);
@@ -396,7 +397,8 @@ function App() {
             dateCaptured: trip.date_created,
             direction: trip.direction,
             userCreated: trip.user_created || '',
-            userUpdated: trip.user_updated || ''
+            userUpdated: trip.user_updated || '',
+            invoice_id: trip.invoice_id || null,
           })));
         });
     }, [loggedIn]);
@@ -504,7 +506,8 @@ function App() {
         clientid: trip.clientid,
         direction: trip.direction,
         userCreated: trip.user_created || '',
-        userUpdated: trip.user_updated || ''
+        userUpdated: trip.user_updated || '',
+        invoice_id: trip.invoice_id || null
       }))));
     setTripForm({
       shiftType: '',
@@ -552,7 +555,9 @@ function App() {
         clientid: trip.clientid,
         direction: trip.direction,
         userCreated: trip.user_created || '',
-        userUpdated: trip.user_updated || ''
+        userUpdated: trip.user_updated || '',
+        invoice_id: trip.invoice_id || null
+
       }))));
     setEditDialogOpen(false);
     setEditTrip(null);
@@ -746,7 +751,8 @@ const now = new Date();
         dateCaptured: trip.date_created,
         direction: trip.direction,
         userCreated: trip.user_created || '',
-        userUpdated: trip.user_updated || ''
+        userUpdated: trip.user_updated || '',
+        invoice_id: trip.invoice_id || null
       })));
       setSnackbar({
         open: true,
