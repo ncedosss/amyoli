@@ -72,12 +72,14 @@ function generateStatement(statementData) {
   doc.setDrawColor(160);
   doc.rect(110, 63, 85, 40);
 
+  const now = new Date();
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   const summaryRows = [
     { label: "Previous Balance", value: "-" },
     { label: "Credit", value: "-" },
     { label: "Debit", value: totalAmount.toFixed(2) },
     { label: "Total Balance Due", value: totalAmount.toFixed(2) },
-    { label: "Payment Due Date", value: "31/12/2025" }
+    { label: "Payment Due Date", value: lastDay.toLocaleDateString() }
   ];
 
   summaryRows.forEach(row => {
