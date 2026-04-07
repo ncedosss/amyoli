@@ -257,7 +257,7 @@ router.post('/trips', async (req, res) => {
         csv_atlantisToWork: 'csv_atlantisFromWork',
         lesedi_ToWork: 'lesedi_ToHome',
         lesediPainters_ToWork: 'lesediPainters_ToHome',
-        lesedi_Ellegent_toWork: 'lesedi_Ellegent_toHome',
+        lesedi_ElegantRoofing_toWork: 'lesedi_ElegantRoofing_toHome',
       };
       if (direction === 'To Work') returnDirection = 'To Home';
       else if (direction === 'To Home') returnDirection = 'To Work';

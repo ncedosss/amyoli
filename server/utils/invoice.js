@@ -95,13 +95,15 @@ function generateInvoice(invoiceData) {
       doc.text("Atlantis Industria, Atlantis", 14, 85);
       doc.text("7349", 14, 90);
       doc.text("Vat No. 4950102162", 14, 95);
-    } else if (invoiceData.client === "CSV" || invoiceData.client === 'Lesedi Ellegent 850') {
+    } else if (invoiceData.client === "CSV") {
       doc.text("ATT: Errol Sedras", 14, 70);
       doc.text("CSV Construction (PTY) LTD", 14, 75);
       doc.text("487 Old Main Road", 14, 80);
       doc.text("Firgrove, Somerset West", 14, 85);
       doc.text("7130", 14, 90);
-    } else if (invoiceData.client === "Lesedi Painters R400" || invoiceData.client === "Lesedi CSV") {
+    } else if (invoiceData.client === "Lesedi Painters R400" 
+              || invoiceData.client === "Lesedi CSV" 
+              || invoiceData.client === 'Elegant Roofing 850') {
       doc.text("ATT: Wendy Morgan", 14, 70);
       doc.text("LESEDI NUCLEAR SERVICES PTY LTD", 14, 75);
       doc.text("Cape Town", 14, 80);
@@ -151,13 +153,19 @@ function generateInvoice(invoiceData) {
       );
     }else if (invoiceData.client === "Lesedi Painters R400") {
       doc.text(
-        "NB: WVC (Painters)",
+        "NB: WVC Painters / Yenzo Tilers",
+        195,
+        95,
+        { align: "right" }
+      );
+    }else if (invoiceData.client === 'Elegant Roofing 850') {
+      doc.text(
+        "NB: Elegant Roofing - Atlantis Route",
         195,
         95,
         { align: "right" }
       );
     }
-
   // ======================
   // TABLE HEADER
   // ======================
