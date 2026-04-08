@@ -584,6 +584,7 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
 
             for (let i = excelIndex; i <= excelIndex + 4; i++) {
               const val = getCellValue(row, i);
+              console.log(`Checking row ${rowIndex} column ${i} with value "${val}" for date pattern`);
 
               if (/\d{1,2}\/\d{1,2}/.test(val)) {
                 matches++;
