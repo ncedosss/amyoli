@@ -683,7 +683,23 @@ router.post('/trips/import', upload.single('file'), async (req, res) => {
       ).join(",")}
     `;
     const values = tripsToInsert.flat();
-    await pool.query(query, values);
+    const BATCH_SIZE = 2000;
+    console.log("Trips generated:", tripsToInsert.length);
+    for (let i = 0; i < tripsToInsert.length; i += BATCH_SIZE) {
+      const batch = tripsToInsert.slice(i, i + BATCH_SIZE);
+
+      const query = `
+        INSERT INTO am."Trip"
+        (ShiftTypeId, Direction, ClientId, Trip_Date, Invoice_Month)
+        VALUES ${batch.map((_, j) =>
+          `($${j * 5 + 1}, $${j * 5 + 2}, $${j * 5 + 3}, $${j * 5 + 4}, $${j * 5 + 5})`
+        ).join(",")}
+      `;
+
+      const values = batch.flat();
+
+      await pool.query(query, values);
+    }
 
     try {
       await sendInvoiceEmail({
