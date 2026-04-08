@@ -738,12 +738,8 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
         to: "ncedosss@gmail.com",
         subject: "Trips Imported",
         text: "Please find attached your trips report.",
-        attachments: [
-          {
-            filename: "trips_report.pdf",
-            path: pdfPath
-          }
-        ]
+        pdfBuffer,
+        filename: 'Trips_Report.pdf'
       });
 
       console.log("Email sent");
