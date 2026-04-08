@@ -567,43 +567,58 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
         return String(val);
       };
 
-      const isDate = (val) => /\d{1,2}\/\d{1,2}/.test(val);
-
       const workbook = new ExcelJS.stream.xlsx.WorkbookReader(req.file.path);
 
       for await (const worksheet of workbook) {
-        console.log("Worksheet Name:", worksheet.name);
-        // ✅ ONLY process Database tab
+
+        // ✅ ONLY Database tab
         if (!worksheet.name.toLowerCase().includes("database")) continue;
 
         for await (const row of worksheet) {
 
           rowIndex++;
 
-          // ✅ Detect DATE ROW (e.g. 29/03, 30/03...)
+          // ✅ FIND HEADER ROW (same idea, but dynamic position)
           if (!dateRow) {
             let matches = 0;
-            console.log("Get Cell Value",getCellValue(row, 14));
+
             for (let i = excelIndex; i <= excelIndex + 4; i++) {
-              if (isDate(getCellValue(row, i))) matches++;
+              const val = getCellValue(row, i);
+
+              if (/\d{1,2}\/\d{1,2}/.test(val)) {
+                matches++;
+              }
             }
-            console.log("Matches found:", matches, "in row", rowIndex);
+
             if (matches >= 2) {
               dateRow = row;
-              console.log("Date row found at:", rowIndex);
+              console.log("Header row found at:", rowIndex);
               continue;
             }
           }
 
-          // ✅ Build date columns
+          // ✅ BUILD dateColumns EXACTLY like old version
           if (dateRow && !headerFound) {
 
-            for (let i = excelIndex; i <= excelIndex + 14; i++) {
-              const dateVal = getCellValue(dateRow, i);
+            for (let i = excelIndex; i <= excelIndex + 4; i++) {
 
-              if (isDate(dateVal)) {
+              let headerValue = "";
+
+              if (req.body.excelIndex === "8") {
+                const raw = getCellValue(dateRow, i);
+                headerValue = normalizeDate(raw);
+              } else if (req.body.excelIndex === "14") {
+                headerValue = getCellValue(dateRow, i);
+              } else {
+                headerValue = getCellValue(dateRow, i);
+              }
+
+              if (
+                typeof headerValue === "string" &&
+                headerValue.match(/\d{1,2}\/\d{1,2}/)
+              ) {
                 dateColumns.push({
-                  date: dateVal,
+                  date: headerValue,
                   index: i
                 });
               }
@@ -615,7 +630,7 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
             continue;
           }
 
-          // ✅ Process rows
+          // ✅ PROCESS DATA ROWS
           if (headerFound) {
 
             dateColumns.forEach(({ date, index }) => {
@@ -625,7 +640,7 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
                 result[date] = { D: 0, A: 0, N: 0 };
               }
 
-              // ✅ YOUR ACTUAL VALUES
+              // ✅ YOUR ACTUAL DATA VALUES
               if (val === "D") result[date].D++;
               if (val === "A") result[date].A++;
               if (val === "N") result[date].N++;
