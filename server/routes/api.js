@@ -520,39 +520,69 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
     // ✅ STREAM EXCEL
     const workbook = new ExcelJS.stream.xlsx.WorkbookReader(req.file.path);
 
+    let headerFound = false;
+    let dateRow = null;
+    let timeRow = null;
+
+    const isDate = (val) => /\d{1,2}\/\d{1,2}/.test(val);
+    const isTime = (val) => /\d{2}:\d{2}/.test(val);
+
     for await (const worksheet of workbook) {
       for await (const row of worksheet) {
+
         rowIndex++;
 
-        // ✅ HEADER ROW
-        if (rowIndex === headerRowIndex) {
+        // 👉 detect DATE ROW (purple row)
+        if (!dateRow) {
+          let matches = 0;
 
-          for (let i = excelIndex; i <= excelIndex + 4; i++) {
-            let headerValue = "";
-
-            if (req.body.excelIndex === "8") {
-              headerValue = normalizeDate(getCellValue(row, i));
-            } else if (req.body.excelIndex === "14") {
-              headerValue = getCellValue(row, i);
-            } else {
-              headerValue = getCellValue(row, i);
-            }
-
-            if (/\d{1,2}[\/\-]\d{1,2}/.test(headerValue)) {
-              dateColumns.push({
-                date: headerValue,
-                index: i,
-              });
-            }
+          for (let i = excelIndex; i <= excelIndex + 10; i++) {
+            const val = getCellValue(row, i);
+            if (isDate(val)) matches++;
           }
 
-          console.log("Date columns:", dateColumns);
-          continue;
+          if (matches >= 2) {
+            dateRow = row;
+            console.log("Date row found at:", rowIndex);
+            continue;
+          }
         }
 
-        // ✅ DATA ROWS
-        if (rowIndex > headerRowIndex) {
+        // 👉 detect TIME ROW (blue row)
+        if (dateRow && !timeRow) {
+          let matches = 0;
 
+          for (let i = excelIndex; i <= excelIndex + 10; i++) {
+            const val = getCellValue(row, i);
+            if (isTime(val)) matches++;
+          }
+
+          if (matches >= 2) {
+            timeRow = row;
+            console.log("Time row found at:", rowIndex);
+
+            // ✅ BUILD DATE COLUMNS HERE
+            for (let i = excelIndex; i <= excelIndex + 20; i++) {
+              const dateVal = getCellValue(dateRow, i);
+              const timeVal = getCellValue(timeRow, i);
+
+              if (isDate(dateVal) && isTime(timeVal)) {
+                dateColumns.push({
+                  date: dateVal,
+                  index: i,
+                });
+              }
+            }
+
+            console.log("Date columns:", dateColumns);
+
+            headerFound = true;
+            continue;
+          }
+        }
+
+        // ✅ PROCESS DATA ROWS
+        if (headerFound) {
           dateColumns.forEach(({ date, index }) => {
             const val = getCellValue(row, index).trim().toUpperCase();
 
