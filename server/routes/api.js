@@ -914,6 +914,9 @@ function generateTripsPDF(filteredTrips) {
     const startX = 40;
     let startY = 80;
 
+    const ROW_HEIGHT = 22;
+    const PAGE_BOTTOM = doc.page.height - 50;
+
     const colWidths = [100, 70, 60, 80, 80, 70];
 
     const drawRow = (row, y, isHeader = false) => {
@@ -922,20 +925,20 @@ function generateTripsPDF(filteredTrips) {
       row.forEach((cell, i) => {
         const width = colWidths[i];
 
-        // Draw border
-        doc.rect(x, y, width, 20).stroke();
-
-        // Fill header
+        // 🔥 Draw background FIRST (fixes overlay bug)
         if (isHeader) {
-          doc.rect(x, y, width, 20).fillAndStroke("#eeeeee", "black");
+          doc.rect(x, y, width, ROW_HEIGHT).fill("#eeeeee");
         }
+
+        // Border
+        doc.rect(x, y, width, ROW_HEIGHT).stroke();
 
         // Text
         doc
           .fillColor("black")
           .font(isHeader ? "Helvetica-Bold" : "Helvetica")
           .fontSize(9)
-          .text(String(cell), x + 5, y + 5, {
+          .text(String(cell ?? ""), x + 5, y + 6, {
             width: width - 10,
             align: "center"
           });
@@ -944,8 +947,23 @@ function generateTripsPDF(filteredTrips) {
       });
     };
 
-    Object.entries(filteredTrips).forEach(([date, shifts]) => {
+    const ensurePageSpace = (extraHeight = 0) => {
+      if (startY + extraHeight > PAGE_BOTTOM) {
+        doc.addPage();
+        startY = 80;
+      }
+    };
 
+    Object.entries(filteredTrips).forEach(([date, shifts], index) => {
+
+      // 🔥 Add spacing between sections
+      if (index !== 0) {
+        startY += 20;
+      }
+
+      ensurePageSpace(30);
+
+      // Title
       doc
         .fontSize(14)
         .font("Helvetica-Bold")
@@ -989,18 +1007,26 @@ function generateTripsPDF(filteredTrips) {
       table.push(buildRow("Staff", shifts["Staff"], "Staff"));
       table.push(["Total Trips", "", "", "", "", shifts.totalTrips]);
 
-      // Draw table
-      table.forEach((row, i) => {
-        drawRow(row, startY, i === 0);
-        startY += 20;
-      });
+      // 🔥 Always draw header first
+      ensurePageSpace(ROW_HEIGHT);
+      drawRow(table[0], startY, true);
+      startY += ROW_HEIGHT;
 
-      startY += 30;
+      // Draw rows
+      for (let i = 1; i < table.length; i++) {
 
-      // New page if needed
-      if (startY > 700) {
-        doc.addPage();
-        startY = 80;
+        // 🔥 Page break BEFORE drawing row
+        if (startY + ROW_HEIGHT > PAGE_BOTTOM) {
+          doc.addPage();
+          startY = 80;
+
+          // 🔥 redraw table header on new page
+          drawRow(table[0], startY, true);
+          startY += ROW_HEIGHT;
+        }
+
+        drawRow(table[i], startY);
+        startY += ROW_HEIGHT;
       }
     });
 
