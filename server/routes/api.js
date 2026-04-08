@@ -583,9 +583,9 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
           // ✅ Detect DATE ROW (e.g. 29/03, 30/03...)
           if (!dateRow) {
             let matches = 0;
-            console.log("Get Cell Value",getCellValue(row, 14));
+            console.log("Get Cell Value",getCellValue(row[2], 14));
             for (let i = excelIndex; i <= excelIndex + 4; i++) {
-              if (isDate(getCellValue(row, i))) matches++;
+              if (isDate(getCellValue(row[2], i))) matches++;
             }
             console.log("Matches found:", matches, "in row", rowIndex);
             if (matches >= 2) {
