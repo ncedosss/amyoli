@@ -609,7 +609,7 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
           // ✅ BUILD dateColumns EXACTLY like old version
           if (dateRow && !headerFound) {
 
-            for (let i = excelIndex; i <= excelIndex + 4; i++) {
+            for (let i = excelIndex + 1; i <= excelIndex + 5; i++) {
 
               let headerValue = "";
 
