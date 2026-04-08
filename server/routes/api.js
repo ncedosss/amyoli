@@ -486,11 +486,11 @@ router.get('/invoices', async (req, res) => {
 });
 
 // POST /api/trips/import (Excel upload)
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ dest: 'uploads/' });
 router.post('/trips/import', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const workbook = xlsx.read(req.file.buffer, { type: 'buffer', cellDates: true });
+    const workbook = xlsx.readFile(req.file.path);
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
     //Convert to 2D array with header:1 to get raw rows, then filter out empty rows
