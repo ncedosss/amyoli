@@ -674,16 +674,24 @@ router.post('/trips/import', upload.single('file'), async (req, res) => {
     });
 
   });
-    const query = `
-      INSERT INTO am."Trip"
-      (ShiftTypeId, Direction, ClientId, Trip_Date, Invoice_Month)
-      VALUES ${tripsToInsert.map(
-        (_, i) =>
-          `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
-      ).join(",")}
-    `;
-    const values = tripsToInsert.flat();
-    await pool.query(query, values);
+    const BATCH_SIZE = 200;
+
+    for (let i = 0; i < tripsToInsert.length; i += BATCH_SIZE) {
+      const batch = tripsToInsert.slice(i, i + BATCH_SIZE);
+
+      const query = `
+        INSERT INTO am."Trip"
+        (ShiftTypeId, Direction, ClientId, Trip_Date, Invoice_Month)
+        VALUES ${batch.map(
+          (_, i) =>
+            `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
+        ).join(",")}
+      `;
+
+      const values = batch.flat();
+
+      await pool.query(query, values);
+    }
 
     try {
       await sendInvoiceEmail({
