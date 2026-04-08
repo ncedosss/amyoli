@@ -496,51 +496,54 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
 
     const excelIndex = Number(req.body.excelIndex);
 
-    const headerRowIndex = 3; // ExcelJS is 1-based
-    const weekendHeaderRowIndex = 2;
+    const isWeekendMode =
+      req.body.excelIndex !== "8" &&
+      req.body.excelIndex !== "14" &&
+      req.body.excelIndex === "15";
 
     let rowIndex = 0;
+    let headerFound = false;
+
+    let dateRow = null;
+    let timeRow = null;
 
     let dateColumns = [];
+    let weekendDateColumns = [];
+
     let result = {};
 
-    // ✅ helper to safely read ExcelJS cell values
+    // ✅ Safe cell reader
     const getCellValue = (row, index) => {
       const val = row.getCell(index).value;
 
       if (!val) return "";
 
       if (typeof val === "object") {
-        return String(val.text || val.result || val.richText?.map(r => r.text).join("") || "");
+        return String(
+          val.text ||
+          val.result ||
+          (val.richText ? val.richText.map(r => r.text).join("") : "")
+        );
       }
 
       return String(val);
     };
 
-    // ✅ STREAM EXCEL
-    const workbook = new ExcelJS.stream.xlsx.WorkbookReader(req.file.path);
-
-    let headerFound = false;
-    let dateRow = null;
-    let timeRow = null;
-
     const isDate = (val) => /\d{1,2}\/\d{1,2}/.test(val);
     const isTime = (val) => /\d{2}:\d{2}/.test(val);
 
+    const workbook = new ExcelJS.stream.xlsx.WorkbookReader(req.file.path);
+
     for await (const worksheet of workbook) {
       for await (const row of worksheet) {
-
         rowIndex++;
 
-        // 👉 detect DATE ROW (purple row)
+        // ✅ Detect DATE ROW
         if (!dateRow) {
           let matches = 0;
-
           for (let i = excelIndex; i <= excelIndex + 10; i++) {
-            const val = getCellValue(row, i);
-            if (isDate(val)) matches++;
+            if (isDate(getCellValue(row, i))) matches++;
           }
-
           if (matches >= 2) {
             dateRow = row;
             console.log("Date row found at:", rowIndex);
@@ -548,60 +551,110 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
           }
         }
 
-        // 👉 detect TIME ROW (blue row)
-        if (dateRow && !timeRow) {
+        // ✅ Detect TIME ROW
+        if (dateRow && !timeRow && !isWeekendMode) {
           let matches = 0;
-
           for (let i = excelIndex; i <= excelIndex + 10; i++) {
-            const val = getCellValue(row, i);
-            if (isTime(val)) matches++;
+            if (isTime(getCellValue(row, i))) matches++;
           }
-
           if (matches >= 2) {
             timeRow = row;
             console.log("Time row found at:", rowIndex);
 
-            // ✅ BUILD DATE COLUMNS HERE
-            for (let i = excelIndex; i <= excelIndex + 20; i++) {
-              const dateVal = getCellValue(dateRow, i);
-              const timeVal = getCellValue(timeRow, i);
-
-              if (isDate(dateVal) && isTime(timeVal)) {
-                dateColumns.push({
-                  date: dateVal,
-                  index: i,
-                });
+            // 🔥 Build columns
+            if (isWeekendMode) {
+              for (let i = excelIndex; i <= excelIndex + 20; i += 5) {
+                const dateVal = getCellValue(dateRow, i);
+                if (isDate(dateVal)) {
+                  weekendDateColumns.push({ date: dateVal, startIndex: i });
+                }
               }
-            }
+              console.log("Weekend columns:", weekendDateColumns);
+            } else {
+              for (let i = excelIndex; i <= excelIndex + 20; i++) {
+                const dateVal = getCellValue(dateRow, i);
+                const timeVal = getCellValue(timeRow, i);
 
-            console.log("Date columns:", dateColumns);
+                if (isDate(dateVal)) {
+                  dateColumns.push({
+                    date: dateVal,
+                    index: i,
+                    time: timeVal,
+                  });
+                }
+              }
+              console.log("Date columns:", dateColumns);
+            }
 
             headerFound = true;
             continue;
           }
         }
 
-        // ✅ PROCESS DATA ROWS
-        if (headerFound) {
-          dateColumns.forEach(({ date, index }) => {
-            const val = getCellValue(row, index).trim().toUpperCase();
-
-            if (!result[date]) {
-              result[date] = { D: 0, A: 0, N: 0 };
+        // ✅ Weekend mode header (no time row needed)
+        if (dateRow && isWeekendMode && !headerFound) {
+          for (let i = excelIndex; i <= excelIndex + 20; i += 5) {
+            const dateVal = getCellValue(dateRow, i);
+            if (isDate(dateVal)) {
+              weekendDateColumns.push({ date: dateVal, startIndex: i });
             }
+          }
+          console.log("Weekend columns:", weekendDateColumns);
+          headerFound = true;
+          continue;
+        }
 
-            if (val === "D") result[date].D++;
-            if (val === "A") result[date].A++;
-            if (val === "N") result[date].N++;
-          });
+        // ✅ PROCESS ROWS
+        if (headerFound) {
+
+          if (isWeekendMode) {
+            weekendDateColumns.forEach(({ date, startIndex }) => {
+
+              if (!result[date]) {
+                result[date] = { D: 0, A: 0, N: 0, "77": 0 };
+              }
+
+              const v0 = getCellValue(row, startIndex).toUpperCase();
+              const v1 = getCellValue(row, startIndex + 1).toUpperCase();
+              const v2 = getCellValue(row, startIndex + 2).toUpperCase();
+              const v3 = getCellValue(row, startIndex + 3).toUpperCase();
+              const v4 = getCellValue(row, startIndex + 4).toUpperCase();
+
+              if (v0 === "ON") result[date].D++;
+              if (v1 === "ON") result[date].A++;
+              if (v2 === "ON") result[date].N++;
+              if (v3 === "ON") result[date]["77"]++;
+              if (v4 === "ON") result[date]["77"]++;
+            });
+
+          } else {
+            dateColumns.forEach(({ date, index, time }) => {
+              const val = getCellValue(row, index).trim().toUpperCase();
+
+              if (val !== "ON") return;
+
+              if (!result[date]) {
+                result[date] = { D: 0, A: 0, N: 0 };
+              }
+
+              if (time.includes("07:00") && time.includes("15:00")) {
+                result[date].D++;
+              } else if (time.includes("15:00") && time.includes("23:00")) {
+                result[date].A++;
+              } else if (time.includes("23:00") && time.includes("07:00")) {
+                result[date].N++;
+              }
+            });
+          }
         }
       }
     }
 
     console.log("Result:", result);
 
-    // ✅ SAME CALCULATION LOGIC
-    const tripsPerDay = calculateTripsPerDay(result, "normal");
+    const tripsPerDay = isWeekendMode
+      ? calculateTripsPerDay(result)
+      : calculateTripsPerDay(result, "normal");
 
     const filteredTrips = Object.fromEntries(
       Object.entries(tripsPerDay).filter(
@@ -613,12 +666,9 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
 
     const invoiceMonth = getInvoiceMonth();
 
-    const shiftTypeMap = {
-      D: 1,
-      A: 2,
-      N: 3,
-      Staff: 7
-    };
+    const shiftTypeMap = isWeekendMode
+      ? { D: 5, A: 5, N: 5, "77": 6 }
+      : { D: 1, A: 2, N: 3, Staff: 7 };
 
     // ✅ BATCH INSERT
     const BATCH_SIZE = 2000;
@@ -663,7 +713,6 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
 
         if (shiftKey === "Staff") {
           const staffTrips = shifts.Staff?.trips || 0;
-
           for (let i = 0; i < staffTrips; i++) {
             await pushTrip("To Home");
           }
@@ -683,7 +732,7 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
 
     console.log("Trips inserted");
 
-    // ✅ EMAIL (same as before)
+    // ✅ EMAIL
     try {
       await sendInvoiceEmail({
         to: "ncedosss@gmail.com",
@@ -691,7 +740,6 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
         text: `Please find attached your trips.\n\n${JSON.stringify(filteredTrips, null, 2)}`,
         filename: "filteredTrips"
       });
-
       console.log("Email sent");
     } catch (err) {
       console.error("Email error:", err);
