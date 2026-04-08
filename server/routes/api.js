@@ -560,10 +560,18 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
 
       const getCellValue = (row, index) => {
         const val = row.getCell(index).value;
+
         if (!val) return "";
+
+        // ✅ handle Excel date numbers
+        if (typeof val === "number") {
+          return excelDateToString(val);
+        }
+
         if (typeof val === "object") {
           return String(val.text || val.result || "");
         }
+
         return String(val);
       };
 
@@ -1001,6 +1009,20 @@ function generateTripsPDF(filteredTrips) {
     stream.on("finish", () => resolve(filePath));
     stream.on("error", reject);
   });
+}
+
+function excelDateToString(value) {
+  if (typeof value === "number") {
+    const excelEpoch = new Date(1899, 11, 30);
+    const jsDate = new Date(excelEpoch.getTime() + value * 86400000);
+
+    const day = String(jsDate.getDate()).padStart(2, "0");
+    const month = String(jsDate.getMonth() + 1).padStart(2, "0");
+
+    return `${day}/${month}`;
+  }
+
+  return value;
 }
 
 
