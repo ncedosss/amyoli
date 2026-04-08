@@ -887,16 +887,53 @@ function getWeekendResults(cleanedData, weekendDateColumns, headerRowIndex) {
 function generateTripsPDF(filteredTrips) {
   return new Promise((resolve, reject) => {
 
-    const filePath = path.join("/tmp", "trips_report.pdf"); // ✅ Heroku-safe
-    const doc = new PDFDocument({ margin: 30 });
+    const filePath = path.join("/tmp", "trips_report.pdf");
+    const doc = new PDFDocument({ margin: 40 });
 
     const stream = fs.createWriteStream(filePath);
     doc.pipe(stream);
 
+    const startX = 40;
+    let startY = 80;
+
+    const colWidths = [100, 70, 60, 80, 80, 70];
+
+    const drawRow = (row, y, isHeader = false) => {
+      let x = startX;
+
+      row.forEach((cell, i) => {
+        const width = colWidths[i];
+
+        // Draw border
+        doc.rect(x, y, width, 20).stroke();
+
+        // Fill header
+        if (isHeader) {
+          doc.rect(x, y, width, 20).fillAndStroke("#eeeeee", "black");
+        }
+
+        // Text
+        doc
+          .fillColor("black")
+          .font(isHeader ? "Helvetica-Bold" : "Helvetica")
+          .fontSize(9)
+          .text(String(cell), x + 5, y + 5, {
+            width: width - 10,
+            align: "center"
+          });
+
+        x += width;
+      });
+    };
+
     Object.entries(filteredTrips).forEach(([date, shifts]) => {
 
-      doc.fontSize(16).text(`Transport Schedule - ${date}`, { underline: true });
-      doc.moveDown();
+      doc
+        .fontSize(14)
+        .font("Helvetica-Bold")
+        .text(`Transport Schedule - ${date}`, startX, startY);
+
+      startY += 25;
 
       const table = [
         ["Shift", "People", "Taxis", "To Work", "To Home", "Total"]
@@ -934,16 +971,23 @@ function generateTripsPDF(filteredTrips) {
       table.push(buildRow("Staff", shifts["Staff"], "Staff"));
       table.push(["Total Trips", "", "", "", "", shifts.totalTrips]);
 
-      table.forEach(row => {
-        doc.fontSize(10).text(row.join(" | "));
+      // Draw table
+      table.forEach((row, i) => {
+        drawRow(row, startY, i === 0);
+        startY += 20;
       });
 
-      doc.moveDown(2);
+      startY += 30;
+
+      // New page if needed
+      if (startY > 700) {
+        doc.addPage();
+        startY = 80;
+      }
     });
 
     doc.end();
 
-    // WAIT for file to finish writing
     stream.on("finish", () => resolve(filePath));
     stream.on("error", reject);
   });
