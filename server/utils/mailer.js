@@ -19,13 +19,14 @@ async function sendInvoiceEmail({ to, subject, text, pdfBuffer, filename }) {
       to,
       subject,
       text,
-      attachments: [
-        {
-          filename: filename || 'Trips_Report.pdf',
-          content: pdfBuffer,
-          contentType: 'application/pdf'
-        }
-      ]
+      attachments: pdfBuffer
+        ? [
+            {
+              filename: filename || "Trips_Report.pdf",
+              path: pdfBuffer
+            }
+          ]
+        : []
     };
     return transporter.sendMail(mailOptions);
   }else {

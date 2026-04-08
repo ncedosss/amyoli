@@ -732,17 +732,15 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
     // ✅ EMAIL (UNCHANGED)
     // =========================================================
     try {
-      const pdfPath = generateTripsPDF(filteredTrips);
-      const pdfBuffer = fs.readFileSync(pdfPath);
+    const pdfPath = await generateTripsPDF(filteredTrips);
 
-      await sendInvoiceEmail({
-        to: "ncedosss@gmail.com",
-        subject: "Trips Imported",
-        text: "Please find attached your trips report.",
-        pdfBuffer,
-        filename: 'Trips_Report.pdf'
-      });
-
+    await sendInvoiceEmail({
+      to: "ncedosss@gmail.com",
+      subject: "Trips Imported",
+      text: "Please find attached your trips report.",
+      pdfPath,
+      filename: "Trips_Report.pdf"
+    });
       console.log("Email sent");
     } catch (err) {
       console.error("Email error:", err);
@@ -887,64 +885,68 @@ function getWeekendResults(cleanedData, weekendDateColumns, headerRowIndex) {
 }
 
 function generateTripsPDF(filteredTrips) {
-  const filePath = path.join(__dirname, "trips_report.pdf");
-  const doc = new PDFDocument({ margin: 30 });
+  return new Promise((resolve, reject) => {
 
-  doc.pipe(fs.createWriteStream(filePath));
+    const filePath = path.join("/tmp", "trips_report.pdf"); // ✅ Heroku-safe
+    const doc = new PDFDocument({ margin: 30 });
 
-  Object.entries(filteredTrips).forEach(([date, shifts]) => {
+    const stream = fs.createWriteStream(filePath);
+    doc.pipe(stream);
 
-    doc.fontSize(16).text(`Transport Schedule - ${date}`, { underline: true });
-    doc.moveDown();
+    Object.entries(filteredTrips).forEach(([date, shifts]) => {
 
-    const table = [
-      ["Shift", "People", "Taxis", "To Work", "To Home", "Total"]
-    ];
+      doc.fontSize(16).text(`Transport Schedule - ${date}`, { underline: true });
+      doc.moveDown();
 
-    const buildRow = (label, s, type) => {
-      if (type === "D") {
-        return [
-          "Day (D)",
-          s.people,
-          s.taxis,
-          s.toWorkTrips || 0,
-          s.toHomeTrips || 0,
-          (s.toWorkTrips || 0) + (s.toHomeTrips || 0)
-        ];
-      }
-
-      const taxis = s.taxis || 0;
-      const trips = s.trips || 0;
-
-      return [
-        label,
-        s.people,
-        taxis,
-        taxis,
-        taxis,
-        trips
+      const table = [
+        ["Shift", "People", "Taxis", "To Work", "To Home", "Total"]
       ];
-    };
 
-    table.push(buildRow("77", shifts["77"], "77"));
-    table.push(buildRow("D", shifts["D"], "D"));
-    table.push(buildRow("Afternoon (A)", shifts["A"], "A"));
-    table.push(buildRow("Night (N)", shifts["N"], "N"));
-    table.push(buildRow("Staff", shifts["Staff"], "Staff"));
+      const buildRow = (label, s, type) => {
+        if (type === "D") {
+          return [
+            "Day (D)",
+            s.people,
+            s.taxis,
+            s.toWorkTrips || 0,
+            s.toHomeTrips || 0,
+            (s.toWorkTrips || 0) + (s.toHomeTrips || 0)
+          ];
+        }
 
-    table.push(["Total Trips", "", "", "", "", shifts.totalTrips]);
+        const taxis = s.taxis || 0;
+        const trips = s.trips || 0;
 
-    // Render table
-    table.forEach(row => {
-      doc.fontSize(10).text(row.join(" | "));
+        return [
+          label,
+          s.people,
+          taxis,
+          taxis,
+          taxis,
+          trips
+        ];
+      };
+
+      table.push(buildRow("77", shifts["77"], "77"));
+      table.push(buildRow("D", shifts["D"], "D"));
+      table.push(buildRow("Afternoon (A)", shifts["A"], "A"));
+      table.push(buildRow("Night (N)", shifts["N"], "N"));
+      table.push(buildRow("Staff", shifts["Staff"], "Staff"));
+      table.push(["Total Trips", "", "", "", "", shifts.totalTrips]);
+
+      table.forEach(row => {
+        doc.fontSize(10).text(row.join(" | "));
+      });
+
+      doc.moveDown(2);
     });
 
-    doc.moveDown(2);
+    doc.end();
+
+    // WAIT for file to finish writing
+    stream.on("finish", () => resolve(filePath));
+    stream.on("error", reject);
   });
-
-  doc.end();
-
-  return filePath;
 }
 
 
