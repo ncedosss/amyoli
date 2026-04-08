@@ -530,6 +530,7 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
       // 🔥 FIXED: dynamic detection instead of i+=5
       for (let i = excelIndex; i <= excelIndex + 5; i += 5) {
         const val = weekendHeaderRow[i];
+        console.log(`Checking column ${i} with value "${val}" for date pattern`);
 
         if (typeof val === "string" && /\d{1,2}\/\d{1,2}/.test(val)) {
           weekendDateColumns.push({
