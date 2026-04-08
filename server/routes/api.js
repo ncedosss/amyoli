@@ -486,11 +486,11 @@ router.get('/invoices', async (req, res) => {
 });
 
 // POST /api/trips/import (Excel upload)
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ storage: multer.memoryStorage() });
 router.post('/trips/import', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const workbook = xlsx.readFile(req.file.path);
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer', cellDates: true });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
     //Convert to 2D array with header:1 to get raw rows, then filter out empty rows
@@ -498,7 +498,8 @@ router.post('/trips/import', upload.single('file'), async (req, res) => {
       header: 1,
       defval: "",
       raw: false
-    }).filter(row =>
+    });
+    const cleanedData = rows.filter(row =>
       row.some(cell => cell !== "" && cell !== null && cell !== undefined)
     );
     if (cleanedData.length === 0) {
@@ -673,24 +674,16 @@ router.post('/trips/import', upload.single('file'), async (req, res) => {
     });
 
   });
-    const BATCH_SIZE = 200;
-
-    for (let i = 0; i < tripsToInsert.length; i += BATCH_SIZE) {
-      const batch = tripsToInsert.slice(i, i + BATCH_SIZE);
-
-      const query = `
-        INSERT INTO am."Trip"
-        (ShiftTypeId, Direction, ClientId, Trip_Date, Invoice_Month)
-        VALUES ${batch.map(
-          (_, i) =>
-            `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
-        ).join(",")}
-      `;
-
-      const values = batch.flat();
-
-      await pool.query(query, values);
-    }
+    const query = `
+      INSERT INTO am."Trip"
+      (ShiftTypeId, Direction, ClientId, Trip_Date, Invoice_Month)
+      VALUES ${tripsToInsert.map(
+        (_, i) =>
+          `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
+      ).join(",")}
+    `;
+    const values = tripsToInsert.flat();
+    await pool.query(query, values);
 
     try {
       await sendInvoiceEmail({
