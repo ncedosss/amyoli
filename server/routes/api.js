@@ -498,8 +498,7 @@ router.post('/trips/import', upload.single('file'), async (req, res) => {
       header: 1,
       defval: "",
       raw: false
-    });
-    const cleanedData = rows.filter(row =>
+    }).filter(row =>
       row.some(cell => cell !== "" && cell !== null && cell !== undefined)
     );
     if (cleanedData.length === 0) {
