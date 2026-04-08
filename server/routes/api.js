@@ -486,7 +486,7 @@ router.get('/invoices', async (req, res) => {
   }
 });
 
-const upload = multer({ dest: "uploads/" }); // ✅ disk storage
+const upload = multer({ dest: "uploads/" });
 
 router.post("/trips/import", upload.single("file"), async (req, res) => {
   try {
@@ -496,120 +496,82 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
 
     const excelIndex = Number(req.body.excelIndex);
 
-    let headerRow = null;
-    let weekendHeaderRow = null;
-
-    const headerRowIndex = 3; // 1-based (ExcelJS)
+    const headerRowIndex = 3; // ExcelJS is 1-based
     const weekendHeaderRowIndex = 2;
 
     let rowIndex = 0;
 
     let dateColumns = [];
-    let weekendDateColumns = [];
-
     let result = {};
 
-    // ✅ STREAMING READER
+    // ✅ helper to safely read ExcelJS cell values
+    const getCellValue = (row, index) => {
+      const val = row.getCell(index).value;
+
+      if (!val) return "";
+
+      if (typeof val === "object") {
+        return String(val.text || val.result || val.richText?.map(r => r.text).join("") || "");
+      }
+
+      return String(val);
+    };
+
+    // ✅ STREAM EXCEL
     const workbook = new ExcelJS.stream.xlsx.WorkbookReader(req.file.path);
 
     for await (const worksheet of workbook) {
       for await (const row of worksheet) {
         rowIndex++;
 
-        const values = row.values; // 1-based index
-
-        if (!values || values.length === 0) continue;
-
         // ✅ HEADER ROW
         if (rowIndex === headerRowIndex) {
-          headerRow = values;
-        }
 
-        if (rowIndex === weekendHeaderRowIndex) {
-          weekendHeaderRow = values;
-        }
+          for (let i = excelIndex; i <= excelIndex + 4; i++) {
+            let headerValue = "";
 
-        // ✅ BUILD DATE COLUMNS (ONLY ONCE)
-        if (rowIndex === headerRowIndex) {
-
-          if (
-            req.body.excelIndex !== "8" &&
-            req.body.excelIndex !== "14" &&
-            req.body.excelIndex === "15"
-          ) {
-            for (let i = excelIndex; i <= excelIndex + 5; i += 5) {
-              const headerValue = weekendHeaderRow?.[i];
-
-              if (
-                typeof headerValue === "string" &&
-                /\d{1,2}[\/\-]\d{1,2}/.test(headerValue)
-              ) {
-                weekendDateColumns.push({
-                  date: headerValue,
-                  startIndex: i,
-                });
-              }
+            if (req.body.excelIndex === "8") {
+              headerValue = normalizeDate(getCellValue(row, i));
+            } else if (req.body.excelIndex === "14") {
+              headerValue = getCellValue(row, i);
+            } else {
+              headerValue = getCellValue(row, i);
             }
-          } else {
-            for (let i = excelIndex; i <= excelIndex + 4; i++) {
-              let headerValue = "";
 
-              if (req.body.excelIndex === "8") {
-                headerValue = normalizeDate(headerRow?.[i] || "");
-              } else if (req.body.excelIndex === "14") {
-                headerValue = headerRow?.[i] || "";
-              }
-
-              if (
-                typeof headerValue === "string" &&
-                /\d{1,2}[\/\-]\d{1,2}/.test(headerValue)
-              ) {
-                dateColumns.push({
-                  date: headerValue,
-                  index: i,
-                });
-              }
+            if (/\d{1,2}[\/\-]\d{1,2}/.test(headerValue)) {
+              dateColumns.push({
+                date: headerValue,
+                index: i,
+              });
             }
           }
 
+          console.log("Date columns:", dateColumns);
           continue;
         }
 
-        // ✅ PROCESS DATA ROWS (NO STORAGE)
+        // ✅ DATA ROWS
         if (rowIndex > headerRowIndex) {
 
-          if (
-            req.body.excelIndex !== "8" &&
-            req.body.excelIndex !== "14" &&
-            req.body.excelIndex === "15"
-          ) {
-            // weekend logic (reuse your function)
-            // NOTE: If getWeekendResults depends on full dataset,
-            // we’ll need to refactor it separately
-          } else {
-            dateColumns.forEach(({ date, index }) => {
-              const val = String(values[index] || "")
-                .trim()
-                .toUpperCase();
+          dateColumns.forEach(({ date, index }) => {
+            const val = getCellValue(row, index).trim().toUpperCase();
 
-              if (!result[date]) {
-                result[date] = { D: 0, A: 0, N: 0 };
-              }
+            if (!result[date]) {
+              result[date] = { D: 0, A: 0, N: 0 };
+            }
 
-              if (val === "D") result[date].D++;
-              if (val === "A") result[date].A++;
-              if (val === "N") result[date].N++;
-            });
-          }
+            if (val === "D") result[date].D++;
+            if (val === "A") result[date].A++;
+            if (val === "N") result[date].N++;
+          });
         }
       }
     }
 
-    // ✅ SAME LOGIC AFTER PARSING
-    let tripsPerDay =
-      req.body.excelIndex === "15"
-        ? calculateTripsPerDay(result)
-        : calculateTripsPerDay(result, "normal");
+    console.log("Result:", result);
+
+    // ✅ SAME CALCULATION LOGIC
+    const tripsPerDay = calculateTripsPerDay(result, "normal");
 
     const filteredTrips = Object.fromEntries(
       Object.entries(tripsPerDay).filter(
@@ -617,14 +579,18 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
       )
     );
 
+    console.log("FilteredTrips:", filteredTrips);
+
     const invoiceMonth = getInvoiceMonth();
 
-    let shiftTypeMap =
-      req.body.excelIndex === "15"
-        ? { D: 5, A: 5, N: 5, "77": 6 }
-        : { D: 1, A: 2, N: 3, Staff: 7 };
+    const shiftTypeMap = {
+      D: 1,
+      A: 2,
+      N: 3,
+      Staff: 7
+    };
 
-    // ✅ BATCH INSERT (NO MEMORY SPIKES)
+    // ✅ BATCH INSERT
     const BATCH_SIZE = 2000;
     let batch = [];
 
@@ -634,12 +600,9 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
       const query = `
         INSERT INTO am."Trip"
         (ShiftTypeId, Direction, ClientId, Trip_Date, Invoice_Month)
-        VALUES ${batch
-          .map(
-            (_, i) =>
-              `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
-          )
-          .join(",")}
+        VALUES ${batch.map((_, i) =>
+          `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
+        ).join(",")}
       `;
 
       await pool.query(query, batch.flat());
@@ -670,6 +633,7 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
 
         if (shiftKey === "Staff") {
           const staffTrips = shifts.Staff?.trips || 0;
+
           for (let i = 0; i < staffTrips; i++) {
             await pushTrip("To Home");
           }
@@ -687,7 +651,21 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
 
     await flushBatch();
 
-    console.log("Import complete");
+    console.log("Trips inserted");
+
+    // ✅ EMAIL (same as before)
+    try {
+      await sendInvoiceEmail({
+        to: "ncedosss@gmail.com",
+        subject: "Trips Imported",
+        text: `Please find attached your trips.\n\n${JSON.stringify(filteredTrips, null, 2)}`,
+        filename: "filteredTrips"
+      });
+
+      console.log("Email sent");
+    } catch (err) {
+      console.error("Email error:", err);
+    }
 
     res.json({ success: true });
 
