@@ -527,9 +527,8 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
       const weekendHeaderRow = cleanedData[1];
 
       const weekendDateColumns = [];
-
       // 🔥 FIXED: dynamic detection instead of i+=5
-      for (let i = excelIndex; i <= excelIndex + 50; i++) {
+      for (let i = excelIndex; i <= excelIndex + 5; i += 5) {
         const val = weekendHeaderRow[i];
 
         if (typeof val === "string" && /\d{1,2}\/\d{1,2}/.test(val)) {
