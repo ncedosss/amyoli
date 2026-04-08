@@ -556,8 +556,6 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
       let headerFound = false;
 
       let dateRow = null;
-      let timeRow = null;
-
       let dateColumns = [];
 
       const getCellValue = (row, index) => {
@@ -570,73 +568,69 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
       };
 
       const isDate = (val) => /\d{1,2}\/\d{1,2}/.test(val);
-      const isTime = (val) => /\d{2}:\d{2}/.test(val);
 
       const workbook = new ExcelJS.stream.xlsx.WorkbookReader(req.file.path);
 
       for await (const worksheet of workbook) {
+
+        // ✅ ONLY process Database tab
+        if (!worksheet.name.toLowerCase().includes("database")) continue;
+
         for await (const row of worksheet) {
 
           rowIndex++;
 
-          // detect date row
+          // ✅ Detect DATE ROW (e.g. 29/03, 30/03...)
           if (!dateRow) {
             let matches = 0;
-            for (let i = excelIndex; i <= excelIndex + 10; i++) {
+
+            for (let i = excelIndex; i <= excelIndex + 4; i++) {
               if (isDate(getCellValue(row, i))) matches++;
             }
+
             if (matches >= 2) {
               dateRow = row;
+              console.log("Date row found at:", rowIndex);
               continue;
             }
           }
 
-          // detect time row
-          if (dateRow && !timeRow) {
-            let matches = 0;
-            for (let i = excelIndex; i <= excelIndex + 10; i++) {
-              if (isTime(getCellValue(row, i))) matches++;
-            }
-            if (matches >= 2) {
-              timeRow = row;
+          // ✅ Build date columns
+          if (dateRow && !headerFound) {
 
-              for (let i = excelIndex; i <= excelIndex + 50; i++) {
-                const dateVal = getCellValue(dateRow, i);
-                const timeVal = getCellValue(timeRow, i);
+            for (let i = excelIndex; i <= excelIndex + 14; i++) {
+              const dateVal = getCellValue(dateRow, i);
 
-                if (isDate(dateVal)) {
-                  dateColumns.push({
-                    date: dateVal,
-                    index: i,
-                    time: timeVal
-                  });
-                }
+              if (isDate(dateVal)) {
+                dateColumns.push({
+                  date: dateVal,
+                  index: i
+                });
               }
-
-              console.log("Date columns:", dateColumns);
-              headerFound = true;
-              continue;
             }
+
+            console.log("Date columns:", dateColumns);
+
+            headerFound = true;
+            continue;
           }
 
-          // process rows
+          // ✅ Process rows
           if (headerFound) {
-            dateColumns.forEach(({ date, index, time }) => {
-              const val = getCellValue(row, index).trim().toUpperCase();
 
-              if (val !== "ON") return;
+            dateColumns.forEach(({ date, index }) => {
+              const val = getCellValue(row, index).trim().toUpperCase();
 
               if (!result[date]) {
                 result[date] = { D: 0, A: 0, N: 0 };
               }
 
-              if (time.includes("07:00") && time.includes("15:00")) {
-                result[date].D++;
-              } else if (time.includes("15:00") && time.includes("23:00")) {
-                result[date].A++;
-              } else if (time.includes("23:00") && time.includes("07:00")) {
-                result[date].N++;
-              }
+              // ✅ YOUR ACTUAL VALUES
+              if (val === "D") result[date].D++;
+              if (val === "A") result[date].A++;
+              if (val === "N") result[date].N++;
+
+              // ignore OFF
             });
           }
         }
