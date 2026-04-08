@@ -733,12 +733,13 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
     // =========================================================
     try {
       const pdfPath = generateTripsPDF(filteredTrips);
+      const pdfBuffer = fs.readFileSync(pdfPath);
 
       await sendInvoiceEmail({
         to: "ncedosss@gmail.com",
         subject: "Trips Imported",
         text: "Please find attached your trips report.",
-        pdfPath,
+        pdfBuffer,
         filename: 'Trips_Report.pdf'
       });
 

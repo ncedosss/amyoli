@@ -13,12 +13,19 @@ const transporter = nodemailer.createTransport({
 });
 
 async function sendInvoiceEmail({ to, subject, text, pdfBuffer, filename }) {
-  if(filename === 'filteredTrips') {
+  if(filename === 'Trips_Report.pdf') {
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to,
       subject,
-      text
+      text,
+      attachments: [
+        {
+          filename: filename || 'Trips_Report.pdf',
+          content: pdfBuffer,
+          contentType: 'application/pdf'
+        }
+      ]
     };
     return transporter.sendMail(mailOptions);
   }else {
