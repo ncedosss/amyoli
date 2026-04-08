@@ -572,7 +572,7 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
       const workbook = new ExcelJS.stream.xlsx.WorkbookReader(req.file.path);
 
       for await (const worksheet of workbook) {
-
+        console.log("Worksheet Name:", worksheet.name);
         // ✅ ONLY process Database tab
         if (!worksheet.name.toLowerCase().includes("database")) continue;
 
@@ -583,11 +583,11 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
           // ✅ Detect DATE ROW (e.g. 29/03, 30/03...)
           if (!dateRow) {
             let matches = 0;
-
+            console.log("Get Cell Value",getCellValue(row, 14));
             for (let i = excelIndex; i <= excelIndex + 4; i++) {
               if (isDate(getCellValue(row, i))) matches++;
             }
-
+            console.log("Matches found:", matches, "in row", rowIndex);
             if (matches >= 2) {
               dateRow = row;
               console.log("Date row found at:", rowIndex);
