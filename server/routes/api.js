@@ -485,7 +485,6 @@ router.get('/invoices', async (req, res) => {
   }
 });
 
-const multer = require("multer");
 const upload = multer({ dest: "uploads/" }); // ✅ disk instead of memory
 
 router.post("/trips/import", upload.single("file"), async (req, res) => {
