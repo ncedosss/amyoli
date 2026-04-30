@@ -33,7 +33,7 @@ function generateStatement(statementData) {
   doc.setTextColor(0,0,0);
   
   doc.text(`Date: ${new Date().toLocaleDateString()}`, 140, 30);
-  doc.text(`Statement #: ${statementData.invoice_no || "-"}`, 140, 36);
+  doc.text(`Statement #: ${statementData.invoice_no || "-"}.1`, 140, 36);
   doc.text(`Customer ID: ${statementData.customer_id || "-"}`, 140, 42);
   doc.text("Page 1 of 1", 140, 48);
 
@@ -140,8 +140,8 @@ doc.setFillColor(230,230,230);
 doc.rect(14, y, 181, rowHeight, "F");
 
 doc.text(`${new Date().toLocaleDateString()}`, 16, y + 6);
-doc.text(`INV${statementData.invoice_no || ""}`, 40, y + 6);
-doc.text(`New Charges for INV${statementData.invoice_no || ""}`, 70, y + 6);
+doc.text(`INV${statementData.invoice_no || ""}.1`, 40, y + 6);
+doc.text(`New Charges for INV${statementData.invoice_no || ""}.1`, 70, y + 6);
 
 doc.text("R", 123, y + 6);
 doc.text(totalAmount.toFixed(2), 148, y + 6, { align: "right" });
@@ -160,7 +160,7 @@ doc.rect(14, y, 181, rowHeight, "F");
 
 doc.text(`${new Date().toLocaleDateString()}`, 16, y + 6);
 doc.text("", 40, y + 6);
-doc.text(`INV${statementData.invoice_no || ""} Payment overdue charge (5%)`, 61, y + 6);
+doc.text(`INV${statementData.invoice_no || ""}.1 Payment overdue charge (5%)`, 61, y + 6);
 
 doc.text("R", 123, y + 6);
 doc.text("-", 148, y + 6, { align: "right" });
