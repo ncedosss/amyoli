@@ -6,7 +6,10 @@ function generateStatement(statementData) {
   const blue = [41, 76, 121];
   const gold = [153, 143, 87];
 
-  const totalAmount = Number(statementData.total_amount || 0);
+  const totalAmount = statementData.reduce(
+    (sum, invoice) => sum + Number(invoice.total_amount || 0),
+    0
+  );
 
   // Example aging breakdown (replace with real calculation if needed)
   const aging = {
@@ -33,8 +36,10 @@ function generateStatement(statementData) {
   doc.setTextColor(0,0,0);
   
   doc.text(`Date: ${new Date().toLocaleDateString()}`, 140, 30);
-  doc.text(`Statement #: ${statementData.invoice_no || "-"}`, 140, 36);
-  doc.text(`Customer ID: ${statementData.customer_id || "-"}`, 140, 42);
+  const firstInvoice = statementData[0];
+
+  doc.text(`Statement #: ${firstInvoice?.invoice_no || "-"}`, 140, 36);
+  doc.text(`Customer ID: ${firstInvoice?.customer_id || "-"}`, 140, 42);
   doc.text("Page 1 of 1", 140, 48);
 
   // ================= BILL TO =================
@@ -136,22 +141,87 @@ y += rowHeight;
 
 
 // ---------- 2️⃣ Invoice Row ----------
-doc.setFillColor(230,230,230);
-doc.rect(14, y, 181, rowHeight, "F");
+statementData.forEach((invoice, index) => {
 
-doc.text(`${new Date().toLocaleDateString()}`, 16, y + 6);
-doc.text(`INV${statementData.invoice_no || ""}`, 40, y + 6);
-doc.text(`New Charges for INV${statementData.invoice_no || ""}`, 70, y + 6);
+  const invoiceAmount = Number(invoice.total_amount || 0);
 
-doc.text("R", 123, y + 6);
-doc.text(totalAmount.toFixed(2), 148, y + 6, { align: "right" });
+  // ---------- Invoice Row ----------
+  doc.setFillColor(index % 2 === 0 ? 230 : 245, 230, 230);
 
-doc.text("-", 160, y + 6);
+  doc.rect(14, y, 181, rowHeight, "F");
 
-doc.text("R", 168, y + 6);
-doc.text(totalAmount.toFixed(2), 193, y + 6, { align: "right" });
+  doc.text(
+    `${new Date(invoice.invoice_date || Date.now()).toLocaleDateString()}`,
+    16,
+    y + 6
+  );
 
-y += rowHeight;
+  doc.text(
+    `INV${invoice.invoice_no || ""}`,
+    40,
+    y + 6
+  );
+
+  doc.text(
+    `New Charges for INV${invoice.invoice_no || ""}`,
+    70,
+    y + 6
+  );
+
+  doc.text("R", 123, y + 6);
+
+  doc.text(
+    invoiceAmount.toFixed(2),
+    148,
+    y + 6,
+    { align: "right" }
+  );
+
+  doc.text("-", 160, y + 6);
+
+  doc.text("R", 168, y + 6);
+
+  doc.text(
+    invoiceAmount.toFixed(2),
+    193,
+    y + 6,
+    { align: "right" }
+  );
+
+  y += rowHeight;
+
+  // ---------- Overdue Row ----------
+  doc.setFillColor(index % 2 === 0 ? 245 : 230, 245, 245);
+
+  doc.rect(14, y, 181, rowHeight, "F");
+
+  doc.text(
+    `${new Date(invoice.invoice_date || Date.now()).toLocaleDateString()}`,
+    16,
+    y + 6
+  );
+
+  doc.text("", 40, y + 6);
+
+  doc.text(
+    `INV${invoice.invoice_no || ""} Payment overdue charge (5%)`,
+    61,
+    y + 6
+  );
+
+  doc.text("R", 123, y + 6);
+
+  doc.text("-", 148, y + 6, { align: "right" });
+
+  doc.text("-", 160, y + 6);
+
+  doc.text("R", 168, y + 6);
+
+  doc.text("-", 193, y + 6, { align: "right" });
+
+  y += rowHeight;
+
+});
 
 
 // ---------- 3️⃣ Overdue Charge Row ----------

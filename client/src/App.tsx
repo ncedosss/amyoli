@@ -58,6 +58,7 @@ function App() {
       const [invoicePdfUrl, setInvoicePdfUrl] = useState<string | null>(null);
       const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
       const [showInvoiced, setShowInvoiced] = useState(false);
+      const [selectedInvoices, setSelectedInvoices] = useState<any[]>([]);
 
       //Bulk delete state
       const [rowSelectionModel, setRowSelectionModel] =
@@ -217,8 +218,6 @@ function App() {
     // Invoices state for statement dropdown
     const [invoices, setInvoices] = useState<any[]>([]);
     const [statementDialogOpen, setStatementDialogOpen] = useState(false);
-    const [selectedInvoiceNo, setSelectedInvoiceNo] = useState('');
-    const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
     const [statementLoading, setStatementLoading] = useState(false);
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const openMenu = Boolean(anchorEl);
@@ -307,40 +306,94 @@ function App() {
 
     // Handle statement generation
     const handleGenerateStatement = async () => {
-      if (!selectedInvoiceNo || !selectedClient) {
-        setSnackbar({ open: true, message: 'Please select a client and invoice.', severity: 'warning' });
+
+      if (!selectedInvoices.length || !selectedClient) {
+
+        setSnackbar({
+          open: true,
+          message: 'Please select a client and at least one invoice.',
+          severity: 'warning'
+        });
+
         return;
       }
+
       setStatementLoading(true);
+
       try {
+
         const response = await fetch('/api/statement', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ invoiceId: selectedInvoiceId, invoiceNo: selectedInvoiceNo, client: selectedClient })
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            invoices: selectedInvoices.map(inv => ({
+              invoiceId: inv.id,
+              invoiceNo: inv.invoice_no
+            })),
+            client: selectedClient
+          })
         });
-        if (!response.ok) throw new Error('Failed to generate statement');
+
+        if (!response.ok) {
+          throw new Error('Failed to generate statement');
+        }
 
         const emailSent = response.headers.get('X-Email-Sent');
+
+        // 🔥 Email failed → download PDF
         if (emailSent === 'false') {
+
           const blob = await response.blob();
+
           const url = window.URL.createObjectURL(blob);
+
           const a = document.createElement('a');
+
           a.href = url;
-          a.download = `statement_${selectedInvoiceNo}.pdf`;
+
+          a.download = `statement.pdf`;
+
           document.body.appendChild(a);
+
           a.click();
+
           a.remove();
-          setSnackbar({ open: true, message: 'Statement downloaded, but email failed to send.', severity: 'warning' });
+
+          window.URL.revokeObjectURL(url);
+
+          setSnackbar({
+            open: true,
+            message: 'Statement downloaded, but email failed to send.',
+            severity: 'warning'
+          });
+
         } else {
-          setSnackbar({ open: true, message: 'Statement generated and email sent successfully!', severity: 'success' });
+
+          setSnackbar({
+            open: true,
+            message: 'Statement generated and emailed successfully!',
+            severity: 'success'
+          });
         }
+
       } catch (err) {
-        setSnackbar({ open: true, message: 'Error generating statement.', severity: 'error' });
+
+        setSnackbar({
+          open: true,
+          message: 'Error generating statement.',
+          severity: 'error'
+        });
+
       } finally {
+
         setStatementLoading(false);
+
         setStatementDialogOpen(false);
-        setSelectedInvoiceNo('');
-        setSelectedInvoiceId('');
+
+        // 🔥 Clear selected invoices
+        setSelectedInvoices([]);
       }
     };
 
@@ -1162,7 +1215,7 @@ const selectedCount =
                 variant="contained"
                 color="secondary"
                 onClick={handleMenuClick}
-                disabled={filteredTrips.length === 0 || invoiceLoading}
+                // disabled={filteredTrips.length === 0 || invoiceLoading}
                 startIcon={invoiceLoading ? <CircularProgress size={20} color="inherit" /> : null}
                 aria-controls={openMenu ? 'generate-menu' : undefined}
                 aria-haspopup="true"
@@ -1265,22 +1318,27 @@ const selectedCount =
               <DialogTitle>Generate Statement</DialogTitle>
               <DialogContent>
                 <Autocomplete
+                  multiple
                   options={invoices}
                   getOptionLabel={inv => `INV${inv.invoice_no} - ${inv.invoice_date}`}
-                  value={invoices.find(inv => inv.invoice_no === selectedInvoiceNo) || null}
-                  onChange={(_, value) => {
-                    setSelectedInvoiceNo(value ? value.invoice_no : '');
-                    setSelectedInvoiceId(value ? value.id : '');
+                  value={selectedInvoices}
+                  onChange={(_, values) => {
+                    setSelectedInvoices(values);
                   }}
-                  renderInput={params => (
-                    <TextField {...params} label="Select Invoice" fullWidth sx={{ mt: 2 }} />
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Select Invoice(s)"
+                      fullWidth
+                      sx={{ mt: 2 }}
+                    />
                   )}
                   isOptionEqualToValue={(option, value) => option.invoice_no === value.invoice_no}
                 />
               </DialogContent>
               <DialogActions>
                 <Button onClick={() => setStatementDialogOpen(false)} color="secondary">Cancel</Button>
-                <Button onClick={handleGenerateStatement} color="primary" disabled={!selectedInvoiceNo || statementLoading}>
+                <Button onClick={handleGenerateStatement} color="primary" disabled={!selectedInvoices.length || statementLoading}>
                   {statementLoading ? <CircularProgress size={20} color="inherit" /> : 'Generate'}
                 </Button>
               </DialogActions>

@@ -423,59 +423,110 @@ router.post('/invoice', async (req, res) => {
 
 // POST /api/statement
 router.post('/statement', async (req, res) => {
+
   try {
-    const { invoiceId, invoiceNo } = req.body;
-    if (!invoiceId || !invoiceNo) {
-      return res.status(400).json({ error: 'invoiceId and invoiceNo are required' });
+
+    const { invoices } = req.body;
+
+    // ✅ Validate
+    if (
+      !invoices ||
+      !Array.isArray(invoices) ||
+      invoices.length === 0
+    ) {
+
+      return res.status(400).json({
+        error: 'At least one invoice is required'
+      });
     }
 
-    // Fetch invoice
+    // ✅ Extract IDs
+    const invoiceIds = invoices.map(i => i.invoiceId);
+
+    // ✅ Fetch ALL invoices
     const invoiceResult = await pool.query(
-      'SELECT * FROM am."Invoice" WHERE id = $1',
-      [invoiceId]
+      `
+      SELECT *
+      FROM am."Invoice"
+      WHERE id = ANY($1)
+      ORDER BY invoice_no
+      `,
+      [invoiceIds]
     );
+
     if (invoiceResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Invoice not found' });
+
+      return res.status(404).json({
+        error: 'Invoices not found'
+      });
     }
-    const invoice = invoiceResult.rows[0];
 
-    // Prepare data for statement
-    const statementData = {
-      ...invoice
-    };
+    // ✅ ALL invoices for ONE statement
+    const statementData = invoiceResult.rows;
 
-    // Generate statement PDF using statement.js
+    // ✅ Generate ONE PDF
     const pdfBuffer = generateStatement(statementData);
-    // Send statement email
+
     let emailSent = true;
+
     try {
+
       await sendInvoiceEmail({
         to: 'ncedosss@gmail.com',
-        subject: 'Your Statement',
-        text: 'Please find attached your statement.',
+        subject: 'Account Statement',
+        text: 'Please find attached your account statement.',
         pdfBuffer,
         filename: 'Account_Statement'
       });
+
     } catch (err) {
-        console.error('Error sending statement email:', err);
+
+      console.error(
+        'Error sending statement email:',
+        err
+      );
+
       emailSent = false;
     }
 
+    // ✅ If email fails → download PDF
     if (!emailSent) {
-      res.setHeader('Content-Type', 'application/pdf');
+
+      res.setHeader(
+        'Content-Type',
+        'application/pdf'
+      );
+
       res.setHeader(
         'Content-Disposition',
-        `attachment; filename=statement_INV${invoiceNo}.pdf`
+        'attachment; filename=statement.pdf'
       );
-      res.setHeader('X-Email-Sent', 'false');
-      res.send(pdfBuffer);
-    } else {
-      res.setHeader('X-Email-Sent', 'true');
-      res.json({ success: true });
+
+      res.setHeader(
+        'X-Email-Sent',
+        'false'
+      );
+
+      return res.send(pdfBuffer);
     }
+
+    // ✅ Success
+    res.setHeader(
+      'X-Email-Sent',
+      'true'
+    );
+
+    return res.json({
+      success: true
+    });
+
   } catch (err) {
+
     console.error(err);
-    res.status(500).json({ error: err.message });
+
+    return res.status(500).json({
+      error: err.message
+    });
   }
 });
 // GET /api/invoices
