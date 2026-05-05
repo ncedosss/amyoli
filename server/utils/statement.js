@@ -55,9 +55,9 @@ function generateStatement(statementData) {
   doc.setTextColor(0,0,0);
   
   if (firstInvoice.client === "Lesedi Painters R400" 
-              || invoiceData.client === "Lesedi CSV" 
-              || invoiceData.client === 'Elegant Roofing 850'
-              || invoiceData.client === 'Lesedi Blayi')
+              || firstInvoice.client === "Lesedi CSV" 
+              || firstInvoice.client === 'Elegant Roofing 850'
+              || firstInvoice.client === 'Lesedi Blayi')
   {
     doc.text("Wendy Morgan", 14, 70);
     doc.text("LESEDI NUCLEAR SERVICES PTY LTD", 14, 75);
