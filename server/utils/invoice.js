@@ -103,7 +103,8 @@ function generateInvoice(invoiceData) {
       doc.text("7130", 14, 90);
     } else if (invoiceData.client === "Lesedi Painters R400" 
               || invoiceData.client === "Lesedi CSV" 
-              || invoiceData.client === 'Elegant Roofing 850') {
+              || invoiceData.client === 'Elegant Roofing 850'
+              || invoiceData.client === 'Lesedi Blayi') {
       doc.text("ATT: Wendy Morgan", 14, 70);
       doc.text("LESEDI NUCLEAR SERVICES PTY LTD", 14, 75);
       doc.text("Cape Town", 14, 80);
@@ -117,7 +118,7 @@ function generateInvoice(invoiceData) {
 
     if (invoiceData.client === "Atlantis Foundaries") {
       doc.text("AF005", 112, 81);
-    } else if (invoiceData.client === "CSV" || invoiceData.client === "Lesedi CSV") {
+    } else if (invoiceData.client === "CSV" || invoiceData.client === "Lesedi CSV" || invoiceData.client === "Lesedi Blayi") {
       doc.text("-", 112, 81);
     } else if (invoiceData.client === "Lesedi Painters R400") {
       doc.text("LNS010", 112, 81);
@@ -161,6 +162,13 @@ function generateInvoice(invoiceData) {
     }else if (invoiceData.client === 'Elegant Roofing 850') {
       doc.text(
         "NB: Elegant Roofing - Atlantis Route",
+        195,
+        95,
+        { align: "right" }
+      );
+    }else if (invoiceData.client === 'Lesedi Blayi') {
+      doc.text(
+        "NB: Blayi - Atlantis/Witsand Route",
         195,
         95,
         { align: "right" }

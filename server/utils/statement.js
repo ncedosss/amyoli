@@ -53,11 +53,22 @@ function generateStatement(statementData) {
 
   doc.setFont("helvetica", "normal");
   doc.setTextColor(0,0,0);
-
-  doc.text("Charlene Adams", 14, 70);
-  doc.text("Atlantis Foundries Pty Ltd", 14, 75);
-  doc.text("William Gourlay Street", 14, 80);
-  doc.text("Atlantis Industria", 14, 85);
+  
+  if (firstInvoice.client === "Lesedi Painters R400" 
+              || invoiceData.client === "Lesedi CSV" 
+              || invoiceData.client === 'Elegant Roofing 850'
+              || invoiceData.client === 'Lesedi Blayi')
+  {
+    doc.text("Wendy Morgan", 14, 70);
+    doc.text("LESEDI NUCLEAR SERVICES PTY LTD", 14, 75);
+    doc.text("Cape Town", 14, 80);
+    doc.text("VAT No. 4460195755", 14, 85);
+  }else{
+    doc.text("Charlene Adams", 14, 70);
+    doc.text("Atlantis Foundries Pty Ltd", 14, 75);
+    doc.text("William Gourlay Street", 14, 80);
+    doc.text("Atlantis Industria", 14, 85);
+  }
 
   // ================= ACCOUNT SUMMARY =================
 
