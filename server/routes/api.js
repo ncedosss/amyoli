@@ -712,8 +712,6 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
       }
     }
 
-    console.log("Result:", result);
-
     const tripsPerDay = isWeekendMode
       ? calculateTripsPerDay(result)
       : calculateTripsPerDay(result, "normal");
@@ -723,8 +721,6 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
         ([, value]) => value.totalTrips > 0
       )
     );
-
-    console.log("FilteredTrips:", filteredTrips);
 
     const invoiceMonth = getInvoiceMonth();
 
@@ -736,7 +732,7 @@ router.post("/trips/import", upload.single("file"), async (req, res) => {
     // ✅ BATCH INSERT (CRITICAL FIX)
     // =========================================================
 
-    const BATCH_SIZE = 2000;
+    const BATCH_SIZE = 250;
     let batch = [];
 
     const flushBatch = async () => {
