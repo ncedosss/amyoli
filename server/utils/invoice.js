@@ -110,6 +110,12 @@ function generateInvoice(invoiceData) {
       doc.text("Cape Town", 14, 80);
       doc.text("South Africa", 14, 85);
       doc.text("VAT No. 4460195755", 14, 90);
+    } else if (invoiceData.client === "WBHO") {
+      doc.text("ATT: WBHO Construction (Pty) Ltd", 14, 70);
+      doc.text("53 Andries Street", 14, 75);
+      doc.text("Wynberg", 14, 80);
+      doc.text("2090", 14, 85);
+      doc.text("Vat No: 4650107529", 14, 90);
     }
 
     // Right side INVOICE details
@@ -169,6 +175,13 @@ function generateInvoice(invoiceData) {
     }else if (invoiceData.client === 'Lesedi Blayi') {
       doc.text(
         "NB: Blayi - Atlantis/Witsand Route",
+        195,
+        95,
+        { align: "right" }
+      );
+    }else if (invoiceData.client === 'Lesedi Blayi') {
+      doc.text(
+        "NB: WBHO - Atl/Wit/Mam Route",
         195,
         95,
         { align: "right" }
