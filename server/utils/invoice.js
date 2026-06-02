@@ -144,11 +144,23 @@ function generateInvoice(invoiceData) {
       95,
       { align: "right" }
     );
+    doc.text(
+      `(From ${invoiceData.from} to ${invoiceData.to})`,
+      195,
+      100,
+      { align: "right" }
+    );
     }else if (invoiceData.client === "CSV") {
       doc.text(
         "EMPLOYEE TRANSPORT - WITSAND/ATLANTIS ROUTE",
         195,
         95,
+        { align: "right" }
+      );
+      doc.text(
+        `(From ${invoiceData.from} to ${invoiceData.to})`,
+        195,
+        100,
         { align: "right" }
       );
     }else if (invoiceData.client === "Lesedi CSV") {
@@ -158,11 +170,23 @@ function generateInvoice(invoiceData) {
         95,
         { align: "right" }
       );
+      doc.text(
+        `(From ${invoiceData.from} to ${invoiceData.to})`,
+        195,
+        100,
+        { align: "right" }
+      );
     }else if (invoiceData.client === "Lesedi Painters R400") {
       doc.text(
         "NB: WVC Painters / Yenzo Tilers",
         195,
         95,
+        { align: "right" }
+      );
+      doc.text(
+        `(From ${invoiceData.from} to ${invoiceData.to})`,
+        195,
+        100,
         { align: "right" }
       );
     }else if (invoiceData.client === 'Elegant Roofing 850') {
@@ -172,6 +196,12 @@ function generateInvoice(invoiceData) {
         95,
         { align: "right" }
       );
+      doc.text(
+        `(From ${invoiceData.from} to ${invoiceData.to})`,
+        195,
+        100,
+        { align: "right" }
+      );
     }else if (invoiceData.client === 'Lesedi Blayi') {
       doc.text(
         "NB: Blayi - Atlantis/Witsand Route",
@@ -179,11 +209,23 @@ function generateInvoice(invoiceData) {
         95,
         { align: "right" }
       );
-    }else if (invoiceData.client === 'Lesedi Blayi') {
+      doc.text(
+        `(From ${invoiceData.from} to ${invoiceData.to})`,
+        195,
+        100,
+        { align: "right" }
+      );
+    }else if (invoiceData.client === 'WBHO') {
       doc.text(
         "NB: WBHO - Atl/Wit/Mam Route",
         195,
         95,
+        { align: "right" }
+      );
+      doc.text(
+        `(From ${invoiceData.from} to ${invoiceData.to})`,
+        195,
+        100,
         { align: "right" }
       );
     }

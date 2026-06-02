@@ -266,6 +266,12 @@ function App() {
       const summary: Record<string, SummaryRow> = {};
       // Only include trips for the selected client
       const clientTrips = filteredTrips.filter(trip => trip.client === selectedClient);
+      const tripDates = clientTrips.map(
+        trip => new Date(trip.trip_date).getTime()
+      );
+
+      const fromDate = new Date(Math.min(...tripDates)).toISOString().split('T')[0];
+      const toDate = new Date(Math.max(...tripDates)).toISOString().split('T')[0];
       clientTrips.forEach(trip => {
         const key = trip.shifttype;
         if (!summary[key]) {
@@ -284,7 +290,9 @@ function App() {
       }));
       const invoiceData = {
         client: selectedClient,
-        rows: invoiceRows
+        rows: invoiceRows,
+        from: fromDate,
+        to: toDate
       };
       try {
         const response = await fetch('/api/invoice', {
@@ -716,6 +724,12 @@ const now = new Date();
       }
       summary[key].qty += 1;
     });
+    const tripDates = filteredTrips.map(
+      trip => new Date(trip.trip_date).getTime()
+    );
+
+    const fromDate = new Date(Math.min(...tripDates)).toISOString().split('T')[0];
+    const toDate = new Date(Math.max(...tripDates)).toISOString().split('T')[0];
     const invoiceRows = Object.values(summary).map(row => ({
       description: row.label,
       qty: row.qty,
@@ -724,7 +738,9 @@ const now = new Date();
     const invoiceData = {
       invoiceNo: filterMonth,
       client: selectedClient,
-      rows: invoiceRows
+      rows: invoiceRows,
+      from: fromDate,
+      to: toDate
     };
     const tripIds = filteredTrips
       .filter(trip => trip.client === selectedClient)
