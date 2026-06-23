@@ -128,6 +128,8 @@ function generateInvoice(invoiceData) {
       doc.text("-", 112, 81);
     } else if (invoiceData.client === "Lesedi Painters R400") {
       doc.text("LNS010", 112, 81);
+    } else if (invoiceData.client === "WBHO") {
+      doc.text("WBHO", 112, 81);
     }
     doc.text("On Receipt", 157, 81);
 
