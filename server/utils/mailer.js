@@ -29,7 +29,8 @@ async function sendInvoiceEmail({ to, subject, text, pdfBuffer, filename }) {
         : []
     };
     return transporter.sendMail(mailOptions);
-  }else {
+  } else {
+    const name = filename || 'invoice.pdf';
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to,
@@ -37,7 +38,7 @@ async function sendInvoiceEmail({ to, subject, text, pdfBuffer, filename }) {
       text,
       attachments: [
         {
-          filename: filename || 'invoice.pdf',
+          filename: name.toLowerCase().endsWith('.pdf') ? name : `${name}.pdf`,
           content: pdfBuffer,
           contentType: 'application/pdf'
         }

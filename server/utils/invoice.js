@@ -139,7 +139,10 @@ function generateInvoice(invoiceData) {
 
     doc.setFont("helvetica", "bold");
 
-    if (invoiceData.client === "Atlantis Foundaries") {
+    if (invoiceData.title) {
+      doc.text(invoiceData.title, 195, 95, { align: "right" });
+      doc.text(`(From ${invoiceData.from} to ${invoiceData.to})`, 195, 100, { align: "right" });
+    } else if (invoiceData.client === "Atlantis Foundaries") {
     doc.text(
       "EMPLOYEE TRANSPORT - WITSAND ROUTE",
       195,

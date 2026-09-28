@@ -252,6 +252,9 @@ function App() {
         handleGenerateInvoice();
       } else if (option === 'statement') {
         setStatementDialogOpen(true);
+      } else if (option === 'adhoc') {
+        setAdhocForm(f => ({ ...f, client: selectedClient }));
+        setAdhocOpen(true);
       }
     };
 
@@ -361,7 +364,7 @@ function App() {
 
           a.href = url;
 
-          a.download = `statement.pdf`;
+          a.download = `Account_Statement_${Math.min(...selectedInvoices.map(inv => inv.invoice_no))}.pdf`;
 
           document.body.appendChild(a);
 
@@ -762,7 +765,7 @@ const now = new Date();
         .then(data => setInvoices(data));
 
       if (emailSent === 'false') {
-        downloadBase64(data.invoicePdf, "invoice.pdf");
+        downloadBase64(data.invoicePdf, `${data.invoiceNo}.pdf`);
         setSnackbar({
           open: true,
           message: 'Invoice downloaded, but email failed to send.',
@@ -786,6 +789,76 @@ const now = new Date();
       }
     } finally {
       setInvoiceLoading(false);
+    }
+  };
+
+    // ---- Adhoc invoice (once-off trips, e.g. Atlantis to Durbanville) ----
+  const emptyAdhocForm = {
+    client: '',
+    fromPlace: 'Atlantis',
+    toPlace: '',
+    price: '',
+    returnTrip: true,
+    tripDate: today,
+    quantity: 1,
+    title: ''
+  };
+  const [adhocOpen, setAdhocOpen] = useState(false);
+  const [adhocLoading, setAdhocLoading] = useState(false);
+  const [adhocForm, setAdhocForm] = useState(emptyAdhocForm);
+
+  const adhocPrice = Number(adhocForm.price) || 0;
+  const adhocLegRate = adhocForm.returnTrip ? adhocPrice / 2 : adhocPrice;
+  const adhocQty = Number(adhocForm.quantity) || 1;
+
+  const handleAdhocChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setAdhocForm(f => ({ ...f, [e.target.name]: e.target.value }));
+  };
+
+  const handleAdhocInvoice = async () => {
+    setAdhocLoading(true);
+    try {
+      const res = await fetch('/api/adhoc-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...adhocForm, userCreated: username })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create adhoc invoice');
+
+      // Reload lookups so the new shift types, trips and invoice appear straight away
+      const [stData, tripData, invData] = await Promise.all([
+        fetch('/api/shift-types').then(r => r.json()),
+        fetch('/api/trips').then(r => r.json()),
+        fetch('/api/invoices').then(r => r.json())
+      ]);
+      setShiftTypes(stData.map((st: any) => ({ value: st.name, label: st.description })));
+      setTrips(tripData.map((trip: any) => ({
+        ...trip,
+        id: trip.id,
+        shiftType: trip.shifttype,
+        tripDate: trip.trip_date,
+        dateCaptured: trip.date_created,
+        direction: trip.direction,
+        userCreated: trip.user_created || '',
+        userUpdated: trip.user_updated || '',
+        invoice_id: trip.invoice_id || null,
+      })));
+      setInvoices(invData);
+
+      if (data.emailSent) {
+        setSnackbar({ open: true, message: `${data.invoiceNo} created and emailed.`, severity: 'success' });
+      } else {
+        downloadBase64(data.invoicePdf, `${data.invoiceNo}.pdf`);
+        setSnackbar({ open: true, message: `${data.invoiceNo} downloaded, but the email failed to send.`, severity: 'warning' });
+      }
+      setAdhocOpen(false);
+      setAdhocForm(emptyAdhocForm);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create adhoc invoice';
+      setSnackbar({ open: true, message, severity: 'error' });
+    } finally {
+      setAdhocLoading(false);
     }
   };
   
@@ -1317,6 +1390,7 @@ const selectedCount =
             >
               <MenuItem onClick={() => handleMenuSelect('invoice')}>Generate Invoice</MenuItem>
               <MenuItem onClick={() => handleMenuSelect('statement')}>Generate Statement</MenuItem>
+              <MenuItem onClick={() => handleMenuSelect('adhoc')}>Generate Adhoc Invoice</MenuItem>
             </Menu>
             <FormControlLabel
               control={
@@ -1356,6 +1430,107 @@ const selectedCount =
                 <Button onClick={() => setStatementDialogOpen(false)} color="secondary">Cancel</Button>
                 <Button onClick={handleGenerateStatement} color="primary" disabled={!selectedInvoices.length || statementLoading}>
                   {statementLoading ? <CircularProgress size={20} color="inherit" /> : 'Generate'}
+                </Button>
+              </DialogActions>
+            </Dialog>
+                        <Dialog open={adhocOpen} onClose={(_, reason) => {
+              if (reason === 'backdropClick' || reason === 'escapeKeyDown') return;
+              setAdhocOpen(false);
+            }} maxWidth="sm" fullWidth>
+              <DialogTitle>Generate Adhoc Invoice</DialogTitle>
+              <DialogContent>
+                <TextField
+                  select
+                  label="Client"
+                  name="client"
+                  value={adhocForm.client}
+                  onChange={handleAdhocChange}
+                  fullWidth
+                  margin="normal"
+                >
+                  {clients.map(c => (
+                    <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
+                  ))}
+                </TextField>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  <TextField label="From" name="fromPlace" value={adhocForm.fromPlace} onChange={handleAdhocChange} fullWidth margin="normal" />
+                  <TextField label="To" name="toPlace" value={adhocForm.toPlace} onChange={handleAdhocChange} fullWidth margin="normal" />
+                </Box>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  <TextField
+                    label={adhocForm.returnTrip ? 'Return price (R)' : 'Price (R)'}
+                    name="price"
+                    type="number"
+                    value={adhocForm.price}
+                    onChange={handleAdhocChange}
+                    fullWidth
+                    margin="normal"
+                  />
+                  <TextField
+                    label="Number of trips"
+                    name="quantity"
+                    type="number"
+                    value={adhocForm.quantity}
+                    onChange={handleAdhocChange}
+                    inputProps={{ min: 1 }}
+                    fullWidth
+                    margin="normal"
+                  />
+                </Box>
+                <TextField
+                  label="Trip date"
+                  name="tripDate"
+                  type="date"
+                  value={adhocForm.tripDate}
+                  onChange={handleAdhocChange}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                  margin="normal"
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={adhocForm.returnTrip}
+                      onChange={e => setAdhocForm(f => ({ ...f, returnTrip: e.target.checked }))}
+                    />
+                  }
+                  label="Return trip (price is split over both legs)"
+                />
+                <TextField
+                  label="Invoice note (optional)"
+                  name="title"
+                  value={adhocForm.title}
+                  onChange={handleAdhocChange}
+                  placeholder={`NB: Adhoc trip - ${adhocForm.toPlace || 'Durbanville'}`}
+                  helperText="Replaces the client's usual route note above the table"
+                  fullWidth
+                  margin="normal"
+                />
+                {adhocPrice > 0 && adhocForm.fromPlace && adhocForm.toPlace && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="subtitle2">Invoice lines</Typography>
+                    <Typography variant="body2">
+                      From {adhocForm.fromPlace} to {adhocForm.toPlace}: R {adhocLegRate.toFixed(2)} x {adhocQty}
+                    </Typography>
+                    {adhocForm.returnTrip && (
+                      <Typography variant="body2">
+                        From {adhocForm.toPlace} to {adhocForm.fromPlace}: R {adhocLegRate.toFixed(2)} x {adhocQty}
+                      </Typography>
+                    )}
+                    <Typography variant="body2" sx={{ fontWeight: 600, mt: 1 }}>
+                      Total: R {(adhocLegRate * adhocQty * (adhocForm.returnTrip ? 2 : 1)).toFixed(2)}
+                    </Typography>
+                  </Box>
+                )}
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setAdhocOpen(false)} color="secondary">Cancel</Button>
+                <Button
+                  onClick={handleAdhocInvoice}
+                  color="primary"
+                  disabled={adhocLoading || !adhocForm.client || !adhocForm.fromPlace || !adhocForm.toPlace || adhocPrice <= 0 || !adhocForm.tripDate}
+                >
+                  {adhocLoading ? <CircularProgress size={20} color="inherit" /> : 'Create invoice'}
                 </Button>
               </DialogActions>
             </Dialog>

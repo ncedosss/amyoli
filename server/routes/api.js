@@ -23,6 +23,15 @@ const path = require("path");
 const { Readable } = require('stream');
 const crypto = require('crypto');
 const { sendConfirmationEmail } = require('../utils/mailer');
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+
+// Customer IDs printed on invoices, by client name
+const CUSTOMER_IDS = {
+  'Lesedi Painters R400': 'LNS010',
+  'Atlantis Foundaries': 'AF005',
+  'Lesedi CSV': 'LNS010'
+};
 
 // POST /api/request-password-reset
 router.post('/request-password-reset', async (req, res) => {
@@ -317,33 +326,23 @@ router.put('/trips/:id', async (req, res) => {
 
 // POST /api/invoice
 router.post('/invoice', async (req, res) => {
-
   try {
     const { invoiceData, tripIds } = req.body;
-    // If X-View-Only header is set, do NOT generate or insert a new invoice, just generate a receipt/preview
+
+    // View-only: build a preview PDF without saving anything
     if (req.headers['x-view-only'] === 'true') {
-      // Optionally, you can fetch an existing invoice number if provided, or just generate a receipt preview
-      // If invoiceData.invoiceNo exists, use it for the filename, otherwise use 'receipt'
-      const pdfBuffer = generateInvoice(invoiceData); // Or use a generateReceipt() if you want a different format
+      const pdfBuffer = generateInvoice(invoiceData);
       res.setHeader('Content-Type', 'application/pdf');
       const filename = invoiceData.invoiceNo ? `receipt_${invoiceData.invoiceNo}.pdf` : 'receipt_preview.pdf';
       res.setHeader('Content-Disposition', `inline; filename=${filename}`);
       return res.end(pdfBuffer);
     }
-    // ...existing code for generating and saving a new invoice...
-    const clientMap = {
-      'Lesedi Painters R400': 'LNS010',
-      'Atlantis Foundaries': 'AF005',
-      'Lesedi CSV': 'LNS010'
-    };
-    const customerId = clientMap[invoiceData.client] || 'UNKNOWN';
-    let subTotal = 0;
-    invoiceData.rows.forEach(row => {
-      const qty = Number(row.qty) || 0;
-      const rate = Number(row.rate) || 0;
-      const lineTotal = qty * rate;
-      subTotal += lineTotal;
-    });
+
+    const customerId = CUSTOMER_IDS[invoiceData.client] || 'UNKNOWN';
+    const subTotal = invoiceData.rows.reduce(
+      (sum, row) => sum + (Number(row.qty) || 0) * (Number(row.rate) || 0),
+      0
+    );
 
     const existing = await pool.query(`
       SELECT id FROM am."Trip"
@@ -352,74 +351,229 @@ router.post('/invoice', async (req, res) => {
     `, [tripIds]);
 
     if (existing.rows.length > 0) {
-      return res.status(400).json({
-        error: 'Some trips are already invoiced'
-      });
+      return res.status(400).json({ error: 'Some trips are already invoiced' });
     }
+
+    // Fix 1: run the whole transaction on ONE connection.
+    // pool.query() can send each statement to a different connection,
+    // so BEGIN/ROLLBACK would not apply to the inserts.
+    const db = await pool.connect();
     let invoiceNo;
-    let invoiceId;
-    await pool.query('BEGIN');
     try {
-      // insert invoice
-      // Insert into Invoice table
-      const invoiceInsertResult = await pool.query(
+      await db.query('BEGIN');
+
+      const invoiceInsertResult = await db.query(
         `INSERT INTO am."Invoice" (Customer_Id, Total_Amount)
-        VALUES ($1, $2)
-        RETURNING "invoice_no", id`,
+         VALUES ($1, $2)
+         RETURNING "invoice_no", id`,
         [customerId, subTotal]
       );
       invoiceNo = invoiceInsertResult.rows[0].invoice_no;
-      invoiceId = invoiceInsertResult.rows[0].id;
-      // insert details
+      const invoiceId = invoiceInsertResult.rows[0].id;
       invoiceData.invoiceNo = 'INV' + invoiceNo;
-      // Insert each row into Invoice_Detail table
+
       for (const row of invoiceData.rows) {
-        await pool.query(
+        await db.query(
           `INSERT INTO am."Invoice_Detail" (invoice_id, Description, Rate, Qty, Amount)
-          VALUES ($1, $2, $3, $4, $5)`,
+           VALUES ($1, $2, $3, $4, $5)`,
           [invoiceId, row.description, row.rate, row.qty, row.qty * row.rate]
         );
       }
-      // update trips
+
       if (tripIds && tripIds.length > 0) {
-        await pool.query(`
+        await db.query(`
           UPDATE am."Trip"
           SET invoice_id = $1
           WHERE id = ANY($2::int[])
           AND invoice_id IS NULL
         `, [invoiceId, tripIds]);
       }
-      await pool.query('COMMIT');
+
+      await db.query('COMMIT');
     } catch (err) {
-      await pool.query('ROLLBACK');
+      await db.query('ROLLBACK');
       throw err;
+    } finally {
+      db.release();
     }
 
-    // Generate PDF buffer
     const pdfBuffer = generateInvoice(invoiceData);
-    // Otherwise, send email as before
     let emailSent = true;
     try {
       await sendInvoiceEmail({
         to: 'ncedosss@gmail.com',
         subject: 'Your Invoice',
         text: 'Please find attached your invoice.',
-        pdfBuffer
+        pdfBuffer,
+        filename: `${invoiceData.invoiceNo}.pdf`
       });
     } catch (err) {
       console.error('Error sending invoice email:', err);
       emailSent = false;
     }
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=invoice_${invoiceNo}.pdf`);
+
+    // Fix 2: send the PDF back when the email fails, so the browser can download it.
     res.setHeader('X-Email-Sent', emailSent ? 'true' : 'false');
-    res.json({ success: true });
+    res.json({
+      success: true,
+      invoiceNo: invoiceData.invoiceNo,
+      emailSent,
+      invoicePdf: emailSent ? undefined : pdfBuffer.toString('base64')
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
-
 });
+
+// POST /api/adhoc-invoice
+// Creates the shift types, rates and trips for a once-off trip, then invoices them.
+router.post('/adhoc-invoice', async (req, res) => {
+  const { client: clientName, fromPlace, toPlace, price, returnTrip, tripDate, quantity, title, userCreated } = req.body;
+
+  const total = Number(price);
+  const qty = Math.max(1, parseInt(quantity, 10) || 1);
+  const from = (fromPlace || '').trim();
+  const to = (toPlace || '').trim();
+
+  if (!clientName || !from || !to || !tripDate || !(total > 0)) {
+    return res.status(400).json({ error: 'Client, from, to, trip date and a price above 0 are required' });
+  }
+
+  // A return price is split over the two legs: R3500 return = 2 x R1750
+  const legRate = Math.round((returnTrip ? total / 2 : total) * 100) / 100;
+  const legs = [{ description: `From ${from} to ${to}`, direction: 'To Work', suffix: 'toWork' }];
+  if (returnTrip) {
+    legs.push({ description: `From ${to} to ${from}`, direction: 'To Home', suffix: 'toHome' });
+  }
+
+  const [year, month] = tripDate.split('-');
+  const invoiceMonth = `${MONTH_NAMES[Number(month) - 1]} ${year}`;
+
+  const db = await pool.connect();
+  let invoiceData;
+  try {
+    await db.query('BEGIN');
+
+    const clientResult = await db.query('SELECT Id FROM am."Client" WHERE Name = $1', [clientName]);
+    if (clientResult.rows.length === 0) {
+      await db.query('ROLLBACK');
+      return res.status(400).json({ error: 'Invalid client' });
+    }
+    const clientId = clientResult.rows[0].id;
+
+    let userId = null;
+    if (userCreated) {
+      const userResult = await db.query('SELECT Id FROM am."User" WHERE Username = $1', [userCreated]);
+      if (userResult.rows.length > 0) userId = userResult.rows[0].id;
+    }
+
+    const invoiceRows = [];
+    const tripIds = [];
+    for (const leg of legs) {
+      const shiftTypeId = await findOrCreateAdhocShiftType(db, leg, legRate);
+      for (let i = 0; i < qty; i++) {
+        const tripResult = await db.query(
+          `INSERT INTO am."Trip" (ShiftTypeId, Direction, ClientId, Trip_Date, User_Created, Invoice_Month)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+          [shiftTypeId, leg.direction, clientId, tripDate, userId, invoiceMonth]
+        );
+        tripIds.push(tripResult.rows[0].id);
+      }
+      invoiceRows.push({ description: leg.description, rate: legRate, qty });
+    }
+
+    const subTotal = invoiceRows.reduce((sum, row) => sum + row.rate * row.qty, 0);
+    const invoiceResult = await db.query(
+      `INSERT INTO am."Invoice" (Customer_Id, Total_Amount)
+       VALUES ($1, $2) RETURNING "invoice_no", id`,
+      [CUSTOMER_IDS[clientName] || 'UNKNOWN', subTotal]
+    );
+    const { invoice_no: invoiceNo, id: invoiceId } = invoiceResult.rows[0];
+
+    for (const row of invoiceRows) {
+      await db.query(
+        `INSERT INTO am."Invoice_Detail" (invoice_id, Description, Rate, Qty, Amount)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [invoiceId, row.description, row.rate, row.qty, row.rate * row.qty]
+      );
+    }
+
+    await db.query('UPDATE am."Trip" SET invoice_id = $1 WHERE id = ANY($2::int[])', [invoiceId, tripIds]);
+    await db.query('COMMIT');
+
+    invoiceData = {
+      invoiceNo: 'INV' + invoiceNo,
+      client: clientName,
+      title: (title || '').trim() || undefined,
+      rows: invoiceRows,
+      from: tripDate,
+      to: tripDate
+    };
+  } catch (err) {
+    await db.query('ROLLBACK');
+    console.error(err);
+    return res.status(500).json({ error: err.message });
+  } finally {
+    db.release();
+  }
+
+  const pdfBuffer = generateInvoice(invoiceData);
+  let emailSent = true;
+  try {
+    await sendInvoiceEmail({
+      to: 'ncedosss@gmail.com',
+      subject: 'Your Invoice',
+      text: 'Please find attached your invoice.',
+      pdfBuffer,
+      filename: `${invoiceData.invoiceNo}.pdf`
+    });
+  } catch (err) {
+    console.error('Error sending adhoc invoice email:', err);
+    emailSent = false;
+  }
+
+  res.json({
+    success: true,
+    invoiceNo: invoiceData.invoiceNo,
+    emailSent,
+    // Only sent back when the email failed, so the browser can download it instead
+    invoicePdf: emailSent ? undefined : pdfBuffer.toString('base64')
+  });
+});
+
+// Reuses an existing adhoc shift type with the same route and rate,
+// otherwise creates the ShiftType and its ShiftRate.
+async function findOrCreateAdhocShiftType(db, leg, rate) {
+  const existing = await db.query(
+    `SELECT s.Id FROM am."ShiftType" s
+     JOIN am."ShiftRate" r ON r.ShiftTypeId = s.Id
+     WHERE LEFT(s.Name, 6) = 'adhoc_' AND s.Description = $1 AND r.Rate = $2
+     LIMIT 1`,
+    [leg.description, rate]
+  );
+  if (existing.rows.length > 0) return existing.rows[0].id;
+
+  await syncIdSequence(db, 'am."ShiftType"');
+  await syncIdSequence(db, 'am."ShiftRate"');
+
+  const shiftType = await db.query(
+    'INSERT INTO am."ShiftType" (Name, Description) VALUES ($1, $2) RETURNING id',
+    [`adhoc_${Date.now()}_${leg.suffix}`, leg.description]
+  );
+  const shiftTypeId = shiftType.rows[0].id;
+  await db.query('INSERT INTO am."ShiftRate" (ShiftTypeId, Rate) VALUES ($1, $2)', [shiftTypeId, rate]);
+  return shiftTypeId;
+}
+
+// Shift types added by hand with explicit ids leave the id sequence behind.
+// Move it past the highest id so new inserts don't hit a duplicate key.
+async function syncIdSequence(db, table) {
+  await db.query(
+    `SELECT setval(pg_get_serial_sequence($1, 'id'), COALESCE((SELECT MAX(id) FROM ${table}), 0) + 1, false)`,
+    [table]
+  );
+}
 
 // POST /api/statement
 router.post('/statement', async (req, res) => {
@@ -463,6 +617,7 @@ router.post('/statement', async (req, res) => {
 
     // ✅ ALL invoices for ONE statement
     const statementData = invoiceResult.rows;
+    const statementFilename = `Account_Statement_${statementData[0].invoice_no}.pdf`;
 
     // ✅ Generate ONE PDF
     const pdfBuffer = generateStatement(statementData);
@@ -476,7 +631,7 @@ router.post('/statement', async (req, res) => {
         subject: 'Account Statement',
         text: 'Please find attached your account statement.',
         pdfBuffer,
-        filename: 'Account_Statement'
+        filename: statementFilename
       });
 
     } catch (err) {
@@ -499,7 +654,7 @@ router.post('/statement', async (req, res) => {
 
       res.setHeader(
         'Content-Disposition',
-        'attachment; filename=statement.pdf'
+        `attachment; filename=${statementFilename}`
       );
 
       res.setHeader(
