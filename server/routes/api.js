@@ -331,6 +331,7 @@ router.post('/invoice', async (req, res) => {
 
     // View-only: build a preview PDF without saving anything
     if (req.headers['x-view-only'] === 'true') {
+      await attachClientDetails(invoiceData);
       const pdfBuffer = generateInvoice(invoiceData);
       res.setHeader('Content-Type', 'application/pdf');
       const filename = invoiceData.invoiceNo ? `receipt_${invoiceData.invoiceNo}.pdf` : 'receipt_preview.pdf';
@@ -338,7 +339,8 @@ router.post('/invoice', async (req, res) => {
       return res.end(pdfBuffer);
     }
 
-    const customerId = CUSTOMER_IDS[invoiceData.client] || 'UNKNOWN';
+    await attachClientDetails(invoiceData);
+    const customerId = CUSTOMER_IDS[invoiceData.client] || invoiceData.customerId || 'UNKNOWN';
     const subTotal = invoiceData.rows.reduce(
       (sum, row) => sum + (Number(row.qty) || 0) * (Number(row.rate) || 0),
       0
@@ -427,10 +429,11 @@ router.post('/invoice', async (req, res) => {
 });
 
 // POST /api/adhoc-invoice
-// Creates the shift types, rates and trips for a once-off trip, then invoices them.
+// Creates the client (if new), shift types, rates and trips for a once-off trip, then invoices them.
 router.post('/adhoc-invoice', async (req, res) => {
-  const { client: clientName, fromPlace, toPlace, price, returnTrip, tripDate, quantity, title, userCreated } = req.body;
+  const { client, clientDetails, customerCode, fromPlace, toPlace, price, returnTrip, tripDate, quantity, title, userCreated } = req.body;
 
+  let clientName = (client || '').trim();
   const total = Number(price);
   const qty = Math.max(1, parseInt(quantity, 10) || 1);
   const from = (fromPlace || '').trim();
@@ -452,15 +455,25 @@ router.post('/adhoc-invoice', async (req, res) => {
 
   const db = await pool.connect();
   let invoiceData;
+  let clientCreated = false;
   try {
     await db.query('BEGIN');
 
-    const clientResult = await db.query('SELECT Id FROM am."Client" WHERE Name = $1', [clientName]);
-    if (clientResult.rows.length === 0) {
-      await db.query('ROLLBACK');
-      return res.status(400).json({ error: 'Invalid client' });
+    // Use the existing client (case-insensitive), or create it
+    const clientResult = await db.query('SELECT Id, Name FROM am."Client" WHERE LOWER(Name) = LOWER($1)', [clientName]);
+    let clientId;
+    if (clientResult.rows.length > 0) {
+      clientId = clientResult.rows[0].id;
+      clientName = clientResult.rows[0].name;
+    } else {
+      await syncIdSequence(db, 'am."Client"');
+      const created = await db.query(
+        'INSERT INTO am."Client" (Name, Invoice_Details, Customer_Code) VALUES ($1, $2, $3) RETURNING id',
+        [clientName, (clientDetails || '').trim() || null, (customerCode || '').trim() || null]
+      );
+      clientId = created.rows[0].id;
+      clientCreated = true;
     }
-    const clientId = clientResult.rows[0].id;
 
     let userId = null;
     if (userCreated) {
@@ -483,13 +496,23 @@ router.post('/adhoc-invoice', async (req, res) => {
       invoiceRows.push({ description: leg.description, rate: legRate, qty });
     }
 
+    invoiceData = {
+      client: clientName,
+      title: (title || '').trim() || undefined,
+      rows: invoiceRows,
+      from: tripDate,
+      to: tripDate
+    };
+    await attachClientDetails(invoiceData, db);
+
     const subTotal = invoiceRows.reduce((sum, row) => sum + row.rate * row.qty, 0);
     const invoiceResult = await db.query(
       `INSERT INTO am."Invoice" (Customer_Id, Total_Amount)
        VALUES ($1, $2) RETURNING "invoice_no", id`,
-      [CUSTOMER_IDS[clientName] || 'UNKNOWN', subTotal]
+      [CUSTOMER_IDS[clientName] || invoiceData.customerId || 'UNKNOWN', subTotal]
     );
     const { invoice_no: invoiceNo, id: invoiceId } = invoiceResult.rows[0];
+    invoiceData.invoiceNo = 'INV' + invoiceNo;
 
     for (const row of invoiceRows) {
       await db.query(
@@ -501,15 +524,6 @@ router.post('/adhoc-invoice', async (req, res) => {
 
     await db.query('UPDATE am."Trip" SET invoice_id = $1 WHERE id = ANY($2::int[])', [invoiceId, tripIds]);
     await db.query('COMMIT');
-
-    invoiceData = {
-      invoiceNo: 'INV' + invoiceNo,
-      client: clientName,
-      title: (title || '').trim() || undefined,
-      rows: invoiceRows,
-      from: tripDate,
-      to: tripDate
-    };
   } catch (err) {
     await db.query('ROLLBACK');
     console.error(err);
@@ -536,11 +550,32 @@ router.post('/adhoc-invoice', async (req, res) => {
   res.json({
     success: true,
     invoiceNo: invoiceData.invoiceNo,
+    clientCreated,
     emailSent,
     // Only sent back when the email failed, so the browser can download it instead
     invoicePdf: emailSent ? undefined : pdfBuffer.toString('base64')
   });
 });
+
+// Adds the address lines and customer ID saved on the Client row. Only matters for
+// clients that aren't hard-coded in utils/invoice.js, e.g. clients created here.
+async function attachClientDetails(invoiceData, db = pool) {
+  const result = await db.query(
+    'SELECT Invoice_Details, Customer_Code FROM am."Client" WHERE Name = $1',
+    [invoiceData.client]
+  );
+  const row = result.rows[0];
+  if (!row) return invoiceData;
+  if (row.invoice_details) {
+    invoiceData.clientDetails = row.invoice_details
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+  }
+  if (row.customer_code) invoiceData.customerId = row.customer_code;
+  return invoiceData;
+}
 
 // Reuses an existing adhoc shift type with the same route and rate,
 // otherwise creates the ShiftType and its ShiftRate.
@@ -619,8 +654,18 @@ router.post('/statement', async (req, res) => {
     const statementData = invoiceResult.rows;
     const statementFilename = `Account_Statement_${statementData[0].invoice_no}.pdf`;
 
-    // ✅ Generate ONE PDF
-    const pdfBuffer = generateStatement(statementData);
+    // Clients created from the app have their address saved on the Client row
+    const clientRow = await pool.query(
+      `SELECT c.Invoice_Details FROM am."Trip" t
+       JOIN am."Client" c ON c.Id = t.ClientId
+       WHERE t.invoice_id = ANY($1) AND c.Invoice_Details IS NOT NULL
+       LIMIT 1`,
+      [invoiceIds]
+    );
+    const clientDetails = clientRow.rows[0]?.invoice_details
+      ?.split('\n').map(line => line.trim()).filter(Boolean).slice(0, 5);
+
+    const pdfBuffer = generateStatement(statementData, clientDetails);
 
     let emailSent = true;
 

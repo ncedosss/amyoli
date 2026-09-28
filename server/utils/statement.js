@@ -1,6 +1,6 @@
 const { jsPDF } = require("jspdf");
 
-function generateStatement(statementData) {
+function generateStatement(statementData, clientDetails) {
 
   const doc = new jsPDF();
   const blue = [41, 76, 121];
@@ -54,8 +54,10 @@ function generateStatement(statementData) {
   doc.setFont("helvetica", "normal");
   doc.setTextColor(0,0,0);
   
-  if (firstInvoice.customer_id !== 'AF005')
-  {
+  if (clientDetails && clientDetails.length) {
+    // Clients created from the app: address lines saved on the Client row
+    clientDetails.forEach((line, i) => doc.text(line, 14, 70 + i * 5));
+  } else if (firstInvoice.customer_id !== 'AF005'){
     doc.text("Wendy Morgan", 14, 70);
     doc.text("LESEDI NUCLEAR SERVICES PTY LTD", 14, 75);
     doc.text("Cape Town", 14, 80);

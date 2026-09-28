@@ -116,6 +116,9 @@ function generateInvoice(invoiceData) {
       doc.text("Wynberg", 14, 80);
       doc.text("2090", 14, 85);
       doc.text("Vat No: 4650107529", 14, 90);
+    } else if (invoiceData.clientDetails) {
+      // Clients created from the app: address lines saved on the Client row
+      invoiceData.clientDetails.forEach((line, i) => doc.text(line, 14, 70 + i * 5));
     }
 
     // Right side INVOICE details
@@ -129,7 +132,9 @@ function generateInvoice(invoiceData) {
     } else if (invoiceData.client === "Lesedi Painters R400") {
       doc.text("LNS010", 112, 81);
     } else if (invoiceData.client === "WBHO") {
-      doc.text("WBHO", 112, 81);
+        doc.text("WBHO", 112, 81);
+    } else if (invoiceData.customerId) {
+        doc.text(invoiceData.customerId, 112, 81);
     }
     doc.text("On Receipt", 157, 81);
 

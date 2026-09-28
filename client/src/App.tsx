@@ -801,7 +801,9 @@ const now = new Date();
     returnTrip: true,
     tripDate: today,
     quantity: 1,
-    title: ''
+    title: '',
+    clientDetails: '',
+    customerCode: ''
   };
   const [adhocOpen, setAdhocOpen] = useState(false);
   const [adhocLoading, setAdhocLoading] = useState(false);
@@ -810,6 +812,7 @@ const now = new Date();
   const adhocPrice = Number(adhocForm.price) || 0;
   const adhocLegRate = adhocForm.returnTrip ? adhocPrice / 2 : adhocPrice;
   const adhocQty = Number(adhocForm.quantity) || 1;
+  const isNewAdhocClient = adhocForm.client.trim() !== '' && !clients.some(c => c.value.toLowerCase() === adhocForm.client.trim().toLowerCase());
 
   const handleAdhocChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setAdhocForm(f => ({ ...f, [e.target.name]: e.target.value }));
@@ -827,11 +830,13 @@ const now = new Date();
       if (!res.ok) throw new Error(data.error || 'Failed to create adhoc invoice');
 
       // Reload lookups so the new shift types, trips and invoice appear straight away
-      const [stData, tripData, invData] = await Promise.all([
+      const [stData, tripData, invData, clientData] = await Promise.all([
         fetch('/api/shift-types').then(r => r.json()),
         fetch('/api/trips').then(r => r.json()),
-        fetch('/api/invoices').then(r => r.json())
+        fetch('/api/invoices').then(r => r.json()),
+        fetch('/api/clients').then(r => r.json())
       ]);
+      setClients(clientData.map((c: any) => ({ value: c.name, label: c.name })));
       setShiftTypes(stData.map((st: any) => ({ value: st.name, label: st.description })));
       setTrips(tripData.map((trip: any) => ({
         ...trip,
@@ -1439,19 +1444,44 @@ const selectedCount =
             }} maxWidth="sm" fullWidth>
               <DialogTitle>Generate Adhoc Invoice</DialogTitle>
               <DialogContent>
-                <TextField
-                  select
-                  label="Client"
-                  name="client"
-                  value={adhocForm.client}
-                  onChange={handleAdhocChange}
-                  fullWidth
-                  margin="normal"
-                >
-                  {clients.map(c => (
-                    <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
-                  ))}
-                </TextField>
+                <Autocomplete
+                  freeSolo
+                  options={clients.map(c => c.value)}
+                  inputValue={adhocForm.client}
+                  onInputChange={(_, value) => setAdhocForm(f => ({ ...f, client: value }))}
+                  renderInput={params => (
+                    <TextField
+                      {...params}
+                      label="Client"
+                      margin="normal"
+                      helperText={isNewAdhocClient ? 'New client: it will be saved when you create the invoice' : 'Pick a client or type a new name'}
+                    />
+                  )}
+                />
+                {isNewAdhocClient && (
+                  <>
+                    <TextField
+                      label="Client details on invoice"
+                      name="clientDetails"
+                      value={adhocForm.clientDetails}
+                      onChange={handleAdhocChange}
+                      multiline
+                      minRows={4}
+                      placeholder={'ATT: Pastor Mokoena\nGrace Community Church\n12 Church Street\nAtlantis\n7349'}
+                      helperText="One line per row (up to 6), printed under CLIENT"
+                      fullWidth
+                      margin="normal"
+                    />
+                    <TextField
+                      label="Customer ID (optional)"
+                      name="customerCode"
+                      value={adhocForm.customerCode}
+                      onChange={handleAdhocChange}
+                      fullWidth
+                      margin="normal"
+                    />
+                  </>
+                )}
                 <Box sx={{ display: 'flex', gap: 2 }}>
                   <TextField label="From" name="fromPlace" value={adhocForm.fromPlace} onChange={handleAdhocChange} fullWidth margin="normal" />
                   <TextField label="To" name="toPlace" value={adhocForm.toPlace} onChange={handleAdhocChange} fullWidth margin="normal" />
@@ -1528,7 +1558,7 @@ const selectedCount =
                 <Button
                   onClick={handleAdhocInvoice}
                   color="primary"
-                  disabled={adhocLoading || !adhocForm.client || !adhocForm.fromPlace || !adhocForm.toPlace || adhocPrice <= 0 || !adhocForm.tripDate}
+                  disabled={adhocLoading || !adhocForm.client.trim() || (isNewAdhocClient && !adhocForm.clientDetails.trim()) || !adhocForm.client || !adhocForm.fromPlace || !adhocForm.toPlace || adhocPrice <= 0 || !adhocForm.tripDate}
                 >
                   {adhocLoading ? <CircularProgress size={20} color="inherit" /> : 'Create invoice'}
                 </Button>
