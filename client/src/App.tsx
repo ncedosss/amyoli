@@ -866,6 +866,148 @@ const now = new Date();
       setAdhocLoading(false);
     }
   };
+
+    // ---- Trip sheet upload (PDF), for every client except Atlantis Foundaries ----
+  type TripSheetDay = { date: string; in: boolean; out: boolean };
+  type TripSheetForm = {
+    step: 'choose' | 'check';
+    client: string;
+    inShiftType: string;
+    outShiftType: string;
+    route: string;
+    taxi: string;
+    invoiceMonth: string; // 'YYYY-MM'
+    days: TripSheetDay[];
+  };
+  const emptyTripSheet: TripSheetForm = {
+    step: 'choose', client: '', inShiftType: '', outShiftType: '',
+    route: '', taxi: '', invoiceMonth: '', days: []
+  };
+  const tripSheetInputRef = useRef<HTMLInputElement>(null);
+  const [tripSheetOpen, setTripSheetOpen] = useState(false);
+  const [tripSheet, setTripSheet] = useState<TripSheetForm>(emptyTripSheet);
+  const [tripSheetLoading, setTripSheetLoading] = useState(false);
+  type ShiftOption = { value: string; label: string };
+  const [clientShiftTypes, setClientShiftTypes] = useState<{ in: ShiftOption[]; out: ShiftOption[] }>({ in: [], out: [] });
+  const [showAllShiftTypes, setShowAllShiftTypes] = useState(false);
+
+  const tripSheetClients = clients.filter(c => c.value !== 'Atlantis Foundaries');
+  const tripSheetInOptions: ShiftOption[] = showAllShiftTypes ? shiftTypes : clientShiftTypes.in;
+  const tripSheetOutOptions: ShiftOption[] = showAllShiftTypes ? shiftTypes : clientShiftTypes.out;
+  const shiftLabel = (name: string) => shiftTypes.find(st => st.value === name)?.label || name;
+  const tripSheetCount = tripSheet.days.reduce((n, d) => n + (d.in ? 1 : 0) + (d.out ? 1 : 0), 0);
+
+  const openTripSheet = () => {
+    setTripSheet(emptyTripSheet);
+    setClientShiftTypes({ in: [], out: [] });
+    setShowAllShiftTypes(false);
+    setTripSheetOpen(true);
+  };
+
+  const closeTripSheet = () => {
+    setTripSheetOpen(false);
+    setTripSheet(emptyTripSheet);
+  };
+
+  // Load the client's linked IN/OUT shift types and pre-select their latest pair
+  const handleTripSheetClient = async (client: string) => {
+    setTripSheet(s => ({ ...s, client, inShiftType: '', outShiftType: '' }));
+    setClientShiftTypes({ in: [], out: [] });
+    if (!client) return;
+    try {
+      const res = await fetch(`/api/client-shift-types?client=${encodeURIComponent(client)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not load shift types');
+      const toOption = (st: any): ShiftOption => ({ value: st.name, label: st.description });
+      const linked = { in: data.in.map(toOption), out: data.out.map(toOption) };
+      setClientShiftTypes(linked);
+      // No shift types linked to this client yet: show all so one can be chosen (it's linked on save)
+      setShowAllShiftTypes(linked.in.length === 0 || linked.out.length === 0);
+      setTripSheet(s => ({ ...s, inShiftType: data.suggestedIn, outShiftType: data.suggestedOut }));
+    } catch (err) {
+      setSnackbar({ open: true, message: err instanceof Error ? err.message : 'Could not load shift types', severity: 'error' });
+    }
+  };
+
+  const handleTripSheetFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow choosing the same file again
+    if (!file) return;
+    setTripSheetLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/trip-sheet/preview', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not read the trip sheet');
+      setTripSheet(s => ({
+        ...s,
+        step: 'check',
+        route: data.route,
+        taxi: data.taxi,
+        invoiceMonth: data.invoiceMonth,
+        days: data.days
+      }));
+    } catch (err) {
+      setSnackbar({ open: true, message: err instanceof Error ? err.message : 'Could not read the trip sheet', severity: 'error' });
+    } finally {
+      setTripSheetLoading(false);
+    }
+  };
+
+  const toggleTripSheetDay = (date: string, key: 'in' | 'out') => {
+    setTripSheet(s => ({
+      ...s,
+      days: s.days.map(d => (d.date === date ? { ...d, [key]: !d[key] } : d))
+    }));
+  };
+
+  const handleCreateTripSheetTrips = async (force = false) => {
+    setTripSheetLoading(true);
+    try {
+      const res = await fetch('/api/trip-sheet/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client: tripSheet.client,
+          inShiftType: tripSheet.inShiftType,
+          outShiftType: tripSheet.outShiftType,
+          invoiceMonth: tripSheet.invoiceMonth,
+          days: tripSheet.days,
+          userCreated: username,
+          force
+        })
+      });
+      const data = await res.json();
+      if (res.status === 409) {
+        setTripSheetLoading(false);
+        if (window.confirm(`${data.error}\n\nAdd these trips anyway?`)) {
+          await handleCreateTripSheetTrips(true);
+        }
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || 'Could not create the trips');
+
+      const tripData = await fetch('/api/trips').then(r => r.json());
+      setTrips(tripData.map((trip: any) => ({
+        ...trip,
+        id: trip.id,
+        shiftType: trip.shifttype,
+        tripDate: trip.trip_date,
+        dateCaptured: trip.date_created,
+        direction: trip.direction,
+        userCreated: trip.user_created || '',
+        userUpdated: trip.user_updated || '',
+        invoice_id: trip.invoice_id || null,
+      })));
+      setSnackbar({ open: true, message: `${data.created} trips added for ${tripSheet.client} (${data.invoiceMonth}).`, severity: 'success' });
+      closeTripSheet();
+    } catch (err) {
+      setSnackbar({ open: true, message: err instanceof Error ? err.message : 'Could not create the trips', severity: 'error' });
+    } finally {
+      setTripSheetLoading(false);
+    }
+  };
   
   const handleBulkDeleteConfirm = async () => {
     setBulkDeleteLoading(true);
@@ -1240,6 +1382,15 @@ const selectedCount =
                 >
                   {uploadTripsLoading ? 'Uploading...' : 'Upload Excel'}
                 </Button>
+                <Button
+                  variant="contained"
+                  color="success"
+                  sx={{ ml: 2 }}
+                  startIcon={<i className="fas fa-file-pdf" style={{ fontSize: 20 }} />}
+                  onClick={openTripSheet}
+                >
+                  Upload PDF
+                </Button>
                 <Menu
                   anchorEl={excelClientMenuAnchor}
                   open={Boolean(excelClientMenuAnchor)}
@@ -1563,6 +1714,126 @@ const selectedCount =
                 >
                   {adhocLoading ? <CircularProgress size={20} color="inherit" /> : 'Create invoice'}
                 </Button>
+              </DialogActions>
+            </Dialog>
+            <Dialog open={tripSheetOpen} onClose={(_, reason) => {
+              if (reason === 'backdropClick' || reason === 'escapeKeyDown') return;
+              closeTripSheet();
+            }} maxWidth="sm" fullWidth>
+              <DialogTitle>
+                {tripSheet.step === 'choose'
+                  ? 'Upload trip sheet'
+                  : `Check trip sheet: ${tripSheet.route || 'Unknown route'}${tripSheet.taxi ? ` (${tripSheet.taxi})` : ''}`}
+              </DialogTitle>
+              <DialogContent>
+                {tripSheet.step === 'choose' ? (
+                  <>
+                    <TextField
+                      select
+                      label="Client"
+                      value={tripSheet.client}
+                      onChange={e => handleTripSheetClient(e.target.value)}
+                      fullWidth
+                      margin="normal"
+                    >
+                      {tripSheetClients.map(c => (
+                        <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
+                      ))}
+                    </TextField>
+                    <Autocomplete
+                      options={tripSheetInOptions}
+                      getOptionLabel={o => o.label}
+                      isOptionEqualToValue={(o, v) => o.value === v.value}
+                      value={tripSheetInOptions.find(st => st.value === tripSheet.inShiftType) || null}
+                      onChange={(_, v) => setTripSheet(s => ({ ...s, inShiftType: v?.value || '' }))}
+                      disabled={!tripSheet.client}
+                      renderInput={params => <TextField {...params} label="IN (trip to site)" margin="normal" />}
+                    />
+                    <Autocomplete
+                      options={tripSheetOutOptions}
+                      getOptionLabel={o => o.label}
+                      isOptionEqualToValue={(o, v) => o.value === v.value}
+                      value={tripSheetOutOptions.find(st => st.value === tripSheet.outShiftType) || null}
+                      onChange={(_, v) => setTripSheet(s => ({ ...s, outShiftType: v?.value || '' }))}
+                      disabled={!tripSheet.client}
+                      renderInput={params => <TextField {...params} label="OUT (trip from site)" margin="normal" />}
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={showAllShiftTypes}
+                          onChange={e => setShowAllShiftTypes(e.target.checked)}
+                          disabled={!tripSheet.client}
+                        />
+                      }
+                      label={showAllShiftTypes ? 'Showing all shift types' : "Showing this client's shift types"}
+                    />
+                    <input
+                      accept=".pdf"
+                      type="file"
+                      style={{ display: 'none' }}
+                      ref={tripSheetInputRef}
+                      onChange={handleTripSheetFile}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Typography variant="body2" sx={{ mt: 1 }}>
+                      <strong>{tripSheet.client}</strong>: IN = {shiftLabel(tripSheet.inShiftType)}, OUT = {shiftLabel(tripSheet.outShiftType)}
+                    </Typography>
+                    <TextField
+                      label="Invoice month"
+                      type="month"
+                      value={tripSheet.invoiceMonth}
+                      onChange={e => setTripSheet(s => ({ ...s, invoiceMonth: e.target.value }))}
+                      InputLabelProps={{ shrink: true }}
+                      fullWidth
+                      margin="normal"
+                    />
+                    <Box sx={{ mt: 1, border: '1px solid #ddd', borderRadius: 1, maxHeight: 320, overflowY: 'auto' }}>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 80px 80px', px: 2, py: 1, bgcolor: '#f5f5f5', fontWeight: 600 }}>
+                        <span>Date</span><span>IN</span><span>OUT</span>
+                      </Box>
+                      {tripSheet.days.map(day => (
+                        <Box key={day.date} sx={{ display: 'grid', gridTemplateColumns: '1fr 80px 80px', alignItems: 'center', px: 2, borderTop: '1px solid #eee' }}>
+                          <span>
+                            {new Date(day.date + 'T00:00:00').toLocaleDateString('en-ZA', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                          </span>
+                          <Checkbox checked={day.in} onChange={() => toggleTripSheetDay(day.date, 'in')} />
+                          <Checkbox checked={day.out} onChange={() => toggleTripSheetDay(day.date, 'out')} />
+                        </Box>
+                      ))}
+                    </Box>
+                    <Typography variant="body2" sx={{ mt: 1 }}>
+                      {tripSheetCount} trips will be added.
+                    </Typography>
+                  </>
+                )}
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={closeTripSheet} color="secondary">Cancel</Button>
+                {tripSheet.step === 'choose' ? (
+                  <Button
+                    onClick={() => tripSheetInputRef.current?.click()}
+                    color="primary"
+                    disabled={tripSheetLoading || !tripSheet.client || !tripSheet.inShiftType || !tripSheet.outShiftType}
+                  >
+                    {tripSheetLoading ? <CircularProgress size={20} color="inherit" /> : 'Choose trip sheet PDF'}
+                  </Button>
+                ) : (
+                  <>
+                    <Button onClick={() => setTripSheet(s => ({ ...s, step: 'choose', days: [] }))} disabled={tripSheetLoading}>
+                      Back
+                    </Button>
+                    <Button
+                      onClick={() => handleCreateTripSheetTrips()}
+                      color="primary"
+                      disabled={tripSheetLoading || !tripSheet.invoiceMonth || tripSheetCount === 0}
+                    >
+                      {tripSheetLoading ? <CircularProgress size={20} color="inherit" /> : `Add ${tripSheetCount} trips`}
+                    </Button>
+                  </>
+                )}
               </DialogActions>
             </Dialog>
                 {/* Snackbar for invoice status */}

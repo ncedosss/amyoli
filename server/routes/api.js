@@ -487,6 +487,11 @@ router.post('/adhoc-invoice', async (req, res) => {
     const tripIds = [];
     for (const leg of legs) {
       const shiftTypeId = await findOrCreateAdhocShiftType(db, leg, legRate);
+      await db.query(
+        `INSERT INTO am."ClientShiftType" (ClientId, ShiftTypeId, Direction)
+         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [clientId, shiftTypeId, leg.direction]
+      );
       for (let i = 0; i < qty; i++) {
         const tripResult = await db.query(
           `INSERT INTO am."Trip" (ShiftTypeId, Direction, ClientId, Trip_Date, User_Created, Invoice_Month)
@@ -756,6 +761,196 @@ router.get('/invoices', async (req, res) => {
 });
 
 const upload = multer({ dest: "uploads/" }); // ✅ no memoryStorage
+
+// =========================================================
+// TRIP SHEET UPLOAD (PDF) -> trips
+// Not used for Atlantis Foundaries, which keeps the Excel upload.
+// =========================================================
+const pdfParse = require('pdf-parse/lib/pdf-parse.js');
+const tripSheetUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const TRIP_SHEET_EXCLUDED_CLIENTS = ['Atlantis Foundaries'];
+const TRIP_SHEET_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+                          'July', 'August', 'September', 'October', 'November', 'December'];
+
+// Reads ROUTE, TAXI REGISTRATION and one entry per date from the trip sheet text.
+// "IN" on a row = trip to site, "OUT" = trip from site, "-" or blank = no trip.
+function parseTripSheet(text) {
+  const route = ((text.match(/ROUTE:\s*(.*?)(?:\s{2,}|TAXI|\n)/i) || [])[1] || '').trim();
+  const taxi = ((text.match(/TAXI REGISTRATION:\s*([^\n]*)/i) || [])[1] || '').trim();
+
+  const byDate = {};
+  const rowPattern = /(\d{2})\/(\d{2})\/(\d{4})([^\n]*)/g;
+  let match;
+  while ((match = rowPattern.exec(text)) !== null) {
+    const [, dd, mm, yyyy, rest] = match;
+    const cells = rest.toUpperCase();
+    byDate[`${yyyy}-${mm}-${dd}`] = { in: /\bIN\b/.test(cells), out: /\bOUT\b/.test(cells) };
+  }
+
+  const days = Object.keys(byDate).sort().map(date => ({ date, ...byDate[date] }));
+  return { route, taxi, days };
+}
+
+// GET /api/client-shift-types?client=Lesedi%20CSV
+// The client's IN and OUT shift types (from ClientShiftType), with the pair
+// used on the client's latest trips pre-selected.
+router.get('/client-shift-types', async (req, res) => {
+  try {
+    const { client } = req.query;
+    if (!client) return res.status(400).json({ error: 'client is required' });
+
+    const linked = await pool.query(
+      `SELECT cst.Direction AS direction, s.Name AS name, s.Description AS description
+       FROM am."ClientShiftType" cst
+       JOIN am."ShiftType" s ON s.Id = cst.ShiftTypeId
+       JOIN am."Client" c ON c.Id = cst.ClientId
+       WHERE c.Name = $1
+       ORDER BY s.Description`,
+      [client]
+    );
+    const toOption = r => ({ name: r.name, description: r.description });
+    const inTypes = linked.rows.filter(r => r.direction === 'To Work').map(toOption);
+    const outTypes = linked.rows.filter(r => r.direction === 'To Home').map(toOption);
+
+    const latest = await pool.query(
+      `SELECT DISTINCT ON (t.Direction) t.Direction AS direction, s.Name AS name
+       FROM am."Trip" t
+       JOIN am."ShiftType" s ON s.Id = t.ShiftTypeId
+       JOIN am."Client" c ON c.Id = t.ClientId
+       WHERE c.Name = $1 AND t.Deleted = FALSE AND t.Direction IN ('To Work', 'To Home')
+       ORDER BY t.Direction, t.Trip_Date DESC, t.Id DESC`,
+      [client]
+    );
+    const latestByDirection = Object.fromEntries(latest.rows.map(r => [r.direction, r.name]));
+
+    // Pre-select the latest pair; if there's no history, pre-select when there's only one choice
+    const pick = (list, direction) =>
+      list.some(st => st.name === latestByDirection[direction])
+        ? latestByDirection[direction]
+        : (list.length === 1 ? list[0].name : '');
+
+    res.json({
+      in: inTypes,
+      out: outTypes,
+      suggestedIn: pick(inTypes, 'To Work'),
+      suggestedOut: pick(outTypes, 'To Home')
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/trip-sheet/preview
+// Reads the uploaded trip sheet and returns the dates found. Nothing is saved.
+router.post('/trip-sheet/preview', tripSheetUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const { text } = await pdfParse(req.file.buffer);
+    const sheet = parseTripSheet(text);
+    if (sheet.days.length === 0) {
+      return res.status(400).json({ error: 'No dates found. Upload the trip sheet as a PDF.' });
+    }
+
+    res.json({
+      ...sheet,
+      // A sheet that runs over two months is billed in the month it ends
+      invoiceMonth: sheet.days[sheet.days.length - 1].date.slice(0, 7)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/trip-sheet/create
+// Inserts the ticked trips for the chosen client and shift types.
+router.post('/trip-sheet/create', async (req, res) => {
+  const { client, inShiftType, outShiftType, invoiceMonth, days, userCreated, force } = req.body;
+
+  if (!client || !inShiftType || !outShiftType || !/^\d{4}-\d{2}$/.test(invoiceMonth || '') || !Array.isArray(days)) {
+    return res.status(400).json({ error: 'Client, both shift types, invoice month and days are required' });
+  }
+  if (TRIP_SHEET_EXCLUDED_CLIENTS.includes(client)) {
+    return res.status(400).json({ error: `Use the Excel upload for ${client}` });
+  }
+
+  const [year, month] = invoiceMonth.split('-');
+  const invoiceMonthName = `${TRIP_SHEET_MONTHS[Number(month) - 1]} ${year}`;
+
+  const trips = [];
+  for (const day of days) {
+    if (day.in) trips.push({ date: day.date, direction: 'To Work' });
+    if (day.out) trips.push({ date: day.date, direction: 'To Home' });
+  }
+  if (trips.length === 0) {
+    return res.status(400).json({ error: 'No trips are ticked' });
+  }
+
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+
+    const clientResult = await db.query('SELECT Id FROM am."Client" WHERE Name = $1', [client]);
+    const inResult = await db.query('SELECT Id FROM am."ShiftType" WHERE Name = $1', [inShiftType]);
+    const outResult = await db.query('SELECT Id FROM am."ShiftType" WHERE Name = $1', [outShiftType]);
+    if (!clientResult.rows.length || !inResult.rows.length || !outResult.rows.length) {
+      await db.query('ROLLBACK');
+      return res.status(400).json({ error: 'Unknown client or shift type' });
+    }
+    const clientId = clientResult.rows[0].id;
+    const shiftTypeIds = { 'To Work': inResult.rows[0].id, 'To Home': outResult.rows[0].id };
+
+    // Warn before capturing the same sheet twice
+    if (!force) {
+      const duplicates = await db.query(
+        `SELECT COUNT(*)::int AS count FROM am."Trip"
+         WHERE Deleted = FALSE AND ClientId = $1
+           AND ShiftTypeId = ANY($2::int[])
+           AND Trip_Date::date = ANY($3::date[])`,
+        [clientId, Object.values(shiftTypeIds), [...new Set(trips.map(t => t.date))]]
+      );
+      if (duplicates.rows[0].count > 0) {
+        await db.query('ROLLBACK');
+        return res.status(409).json({
+          error: `${duplicates.rows[0].count} trip(s) for this client and shift types already exist on these dates.`
+        });
+      }
+    }
+
+    let userId = null;
+    if (userCreated) {
+      const userResult = await db.query('SELECT Id FROM am."User" WHERE Username = $1', [userCreated]);
+      if (userResult.rows.length > 0) userId = userResult.rows[0].id;
+    }
+
+    for (const trip of trips) {
+      await db.query(
+        `INSERT INTO am."Trip" (ShiftTypeId, Direction, ClientId, Trip_Date, User_Created, Invoice_Month)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [shiftTypeIds[trip.direction], trip.direction, clientId, trip.date, userId, invoiceMonthName]
+      );
+    }
+
+    // Link the chosen shift types to the client, so they're offered next time
+    for (const [direction, shiftTypeId] of Object.entries(shiftTypeIds)) {
+      await db.query(
+        `INSERT INTO am."ClientShiftType" (ClientId, ShiftTypeId, Direction)
+         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [clientId, shiftTypeId, direction]
+      );
+    }
+
+    await db.query('COMMIT');
+    res.status(201).json({ created: trips.length, invoiceMonth: invoiceMonthName });
+  } catch (err) {
+    await db.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    db.release();
+  }
+});
 
 router.post("/trips/import", upload.single("file"), async (req, res) => {
   try {
