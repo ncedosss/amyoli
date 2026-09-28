@@ -1477,6 +1477,7 @@ const selectedCount =
                       name="customerCode"
                       value={adhocForm.customerCode}
                       onChange={handleAdhocChange}
+                      helperText="Leave blank to use the client name. Invoice numbers start at 1 per customer ID."
                       fullWidth
                       margin="normal"
                     />

@@ -364,11 +364,13 @@ router.post('/invoice', async (req, res) => {
     try {
       await db.query('BEGIN');
 
+      await syncIdSequence(db, 'am."Invoice"');
+      const nextNo = await nextInvoiceNo(db, customerId);
       const invoiceInsertResult = await db.query(
-        `INSERT INTO am."Invoice" (Customer_Id, Total_Amount)
-         VALUES ($1, $2)
+        `INSERT INTO am."Invoice" (Customer_Id, Invoice_No, Total_Amount)
+         VALUES ($1, $2, $3)
          RETURNING "invoice_no", id`,
-        [customerId, subTotal]
+        [customerId, nextNo, subTotal]
       );
       invoiceNo = invoiceInsertResult.rows[0].invoice_no;
       const invoiceId = invoiceInsertResult.rows[0].id;
@@ -469,7 +471,7 @@ router.post('/adhoc-invoice', async (req, res) => {
       await syncIdSequence(db, 'am."Client"');
       const created = await db.query(
         'INSERT INTO am."Client" (Name, Invoice_Details, Customer_Code) VALUES ($1, $2, $3) RETURNING id',
-        [clientName, (clientDetails || '').trim() || null, (customerCode || '').trim() || null]
+        [clientName, (clientDetails || '').trim() || null, (customerCode || '').trim() || clientName]
       );
       clientId = created.rows[0].id;
       clientCreated = true;
@@ -506,10 +508,13 @@ router.post('/adhoc-invoice', async (req, res) => {
     await attachClientDetails(invoiceData, db);
 
     const subTotal = invoiceRows.reduce((sum, row) => sum + row.rate * row.qty, 0);
+    const customerId = CUSTOMER_IDS[clientName] || invoiceData.customerId || 'UNKNOWN';
+    await syncIdSequence(db, 'am."Invoice"');
+    const nextNo = await nextInvoiceNo(db, customerId);
     const invoiceResult = await db.query(
-      `INSERT INTO am."Invoice" (Customer_Id, Total_Amount)
-       VALUES ($1, $2) RETURNING "invoice_no", id`,
-      [CUSTOMER_IDS[clientName] || invoiceData.customerId || 'UNKNOWN', subTotal]
+      `INSERT INTO am."Invoice" (Customer_Id, Invoice_No, Total_Amount)
+       VALUES ($1, $2, $3) RETURNING "invoice_no", id`,
+      [customerId, nextNo, subTotal]
     );
     const { invoice_no: invoiceNo, id: invoiceId } = invoiceResult.rows[0];
     invoiceData.invoiceNo = 'INV' + invoiceNo;
@@ -599,6 +604,17 @@ async function findOrCreateAdhocShiftType(db, leg, rate) {
   const shiftTypeId = shiftType.rows[0].id;
   await db.query('INSERT INTO am."ShiftRate" (ShiftTypeId, Rate) VALUES ($1, $2)', [shiftTypeId, rate]);
   return shiftTypeId;
+}
+
+// Invoice numbers run per customer: a customer's first invoice is 1, then 2, 3...
+// The lock stops two invoices for the same customer getting the same number.
+async function nextInvoiceNo(db, customerId) {
+  await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [customerId]);
+  const { rows } = await db.query(
+    'SELECT COALESCE(MAX(invoice_no), 0) + 1 AS next FROM am."Invoice" WHERE customer_id = $1',
+    [customerId]
+  );
+  return rows[0].next;
 }
 
 // Shift types added by hand with explicit ids leave the id sequence behind.
