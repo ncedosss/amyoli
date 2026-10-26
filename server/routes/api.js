@@ -613,12 +613,18 @@ async function findOrCreateAdhocShiftType(db, leg, rate) {
 }
 
 // Invoice numbers run per customer: a customer's first invoice is 1, then 2, 3...
+// Customers listed here start from a given number instead.
+const INVOICE_START_NO = {
+  SP133: 572, // StandardProfil continues from its previous invoices
+};
+
 // The lock stops two invoices for the same customer getting the same number.
 async function nextInvoiceNo(db, customerId) {
   await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [customerId]);
+  const startNo = INVOICE_START_NO[customerId] || 1;
   const { rows } = await db.query(
-    'SELECT COALESCE(MAX(invoice_no), 0) + 1 AS next FROM am."Invoice" WHERE customer_id = $1',
-    [customerId]
+    'SELECT GREATEST(COALESCE(MAX(invoice_no), 0) + 1, $2) AS next FROM am."Invoice" WHERE customer_id = $1',
+    [customerId, startNo]
   );
   return rows[0].next;
 }
