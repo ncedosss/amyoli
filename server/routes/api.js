@@ -30,7 +30,8 @@ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
 const CUSTOMER_IDS = {
   'Lesedi Painters R400': 'LNS010',
   'Atlantis Foundaries': 'AF005',
-  'Lesedi CSV': 'LNS010'
+  'Lesedi CSV': 'LNS010',
+  'WBHO': 'WBHO001',
 };
 
 // POST /api/request-password-reset
