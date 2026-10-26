@@ -770,6 +770,8 @@ const upload = multer({ dest: "uploads/" }); // ✅ no memoryStorage
 const pdfParse = require('pdf-parse/lib/pdf-parse.js');
 const tripSheetUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const TRIP_SHEET_EXCLUDED_CLIENTS = ['Atlantis Foundaries'];
+// StandardProfil bills per trip-sheet row: IN only = single trip, IN and OUT = double trip
+const STANDARD_PROFIL = { client: 'StandardProfil', single: 'sp_single', double: 'sp_double' };
 const TRIP_SHEET_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
                           'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -789,7 +791,17 @@ function parseTripSheet(text) {
   }
 
   const days = Object.keys(byDate).sort().map(date => ({ date, ...byDate[date] }));
-  return { route, taxi, days };
+
+  // Every row as it appears on the sheet (several per date allowed), used for StandardProfil.
+  // Each row stops at the next date, because PDF text sometimes runs two rows together.
+  const rows = [];
+  const sheetRowPattern = /(\d{2})\/(\d{2})\/(\d{4})((?:(?!\d{2}\/\d{2}\/\d{4})[^\n])*)/g;
+  while ((match = sheetRowPattern.exec(text)) !== null) {
+    const [, dd, mm, yyyy, rest] = match;
+    rows.push({ date: `${yyyy}-${mm}-${dd}`, in: /\bIN(?![a-z])/.test(rest), out: /\bOUT(?![a-z])/.test(rest) });
+  }
+
+  return { route, taxi, days, rows };
 }
 
 // GET /api/client-shift-types?client=Lesedi%20CSV
@@ -867,6 +879,7 @@ router.post('/trip-sheet/preview', tripSheetUpload.single('file'), async (req, r
 // POST /api/trip-sheet/create
 // Inserts the ticked trips for the chosen client and shift types.
 router.post('/trip-sheet/create', async (req, res) => {
+  if (req.body.client === STANDARD_PROFIL.client) return createStandardProfilTrips(req, res);
   const { client, inShiftType, outShiftType, invoiceMonth, days, userCreated, force } = req.body;
 
   if (!client || !inShiftType || !outShiftType || !/^\d{4}-\d{2}$/.test(invoiceMonth || '') || !Array.isArray(days)) {
@@ -952,6 +965,89 @@ router.post('/trip-sheet/create', async (req, res) => {
     db.release();
   }
 });
+
+// StandardProfil: one trip per trip-sheet row.
+// IN only (or OUT only) = Single Trip/s, IN and OUT = Double Trip/s.
+async function createStandardProfilTrips(req, res) {
+  const { client, invoiceMonth, rows, userCreated, force } = req.body;
+  if (!/^\d{4}-\d{2}$/.test(invoiceMonth || '') || !Array.isArray(rows)) {
+    return res.status(400).json({ error: 'Invoice month and trip sheet rows are required' });
+  }
+  const [year, month] = invoiceMonth.split('-');
+  const invoiceMonthName = `${TRIP_SHEET_MONTHS[Number(month) - 1]} ${year}`;
+
+  const trips = rows
+    .filter(r => r.in || r.out)
+    .map(r => ({
+      date: r.date,
+      shiftType: r.in && r.out ? STANDARD_PROFIL.double : STANDARD_PROFIL.single,
+      direction: r.in ? 'To Work' : 'To Home'
+    }));
+  if (trips.length === 0) return res.status(400).json({ error: 'No trips are ticked' });
+
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+
+    const clientResult = await db.query('SELECT Id FROM am."Client" WHERE Name = $1', [client]);
+    const typeResult = await db.query(
+      'SELECT Id, Name FROM am."ShiftType" WHERE Name = ANY($1)',
+      [[STANDARD_PROFIL.single, STANDARD_PROFIL.double]]
+    );
+    if (!clientResult.rows.length || typeResult.rows.length < 2) {
+      await db.query('ROLLBACK');
+      return res.status(400).json({ error: 'StandardProfil or its Single/Double shift types are missing' });
+    }
+    const clientId = clientResult.rows[0].id;
+    const typeIds = Object.fromEntries(typeResult.rows.map(r => [r.name, r.id]));
+
+    // Warn before capturing the same sheet twice
+    if (!force) {
+      const duplicates = await db.query(
+        `SELECT COUNT(*)::int AS count FROM am."Trip"
+         WHERE Deleted = FALSE AND ClientId = $1
+           AND ShiftTypeId = ANY($2::int[])
+           AND Trip_Date::date = ANY($3::date[])`,
+        [clientId, Object.values(typeIds), [...new Set(trips.map(t => t.date))]]
+      );
+      if (duplicates.rows[0].count > 0) {
+        await db.query('ROLLBACK');
+        return res.status(409).json({
+          error: `${duplicates.rows[0].count} StandardProfil trip(s) already exist on these dates.`
+        });
+      }
+    }
+
+    let userId = null;
+    if (userCreated) {
+      const userResult = await db.query('SELECT Id FROM am."User" WHERE Username = $1', [userCreated]);
+      if (userResult.rows.length > 0) userId = userResult.rows[0].id;
+    }
+
+    for (const trip of trips) {
+      await db.query(
+        `INSERT INTO am."Trip" (ShiftTypeId, Direction, ClientId, Trip_Date, User_Created, Invoice_Month)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [typeIds[trip.shiftType], trip.direction, clientId, trip.date, userId, invoiceMonthName]
+      );
+    }
+
+    await db.query('COMMIT');
+    const doubles = trips.filter(t => t.shiftType === STANDARD_PROFIL.double).length;
+    res.status(201).json({
+      created: trips.length,
+      single: trips.length - doubles,
+      double: doubles,
+      invoiceMonth: invoiceMonthName
+    });
+  } catch (err) {
+    await db.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    db.release();
+  }
+}
 
 router.post("/trips/import", upload.single("file"), async (req, res) => {
   try {

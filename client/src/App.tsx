@@ -878,10 +878,11 @@ const now = new Date();
     taxi: string;
     invoiceMonth: string; // 'YYYY-MM'
     days: TripSheetDay[];
+    rows: TripSheetDay[]; // StandardProfil: every sheet row, several per date allowed
   };
   const emptyTripSheet: TripSheetForm = {
     step: 'choose', client: '', inShiftType: '', outShiftType: '',
-    route: '', taxi: '', invoiceMonth: '', days: []
+    route: '', taxi: '', invoiceMonth: '', days: [], rows: []
   };
   const tripSheetInputRef = useRef<HTMLInputElement>(null);
   const [tripSheetOpen, setTripSheetOpen] = useState(false);
@@ -895,7 +896,13 @@ const now = new Date();
   const tripSheetInOptions: ShiftOption[] = showAllShiftTypes ? shiftTypes : clientShiftTypes.in;
   const tripSheetOutOptions: ShiftOption[] = showAllShiftTypes ? shiftTypes : clientShiftTypes.out;
   const shiftLabel = (name: string) => shiftTypes.find(st => st.value === name)?.label || name;
-  const tripSheetCount = tripSheet.days.reduce((n, d) => n + (d.in ? 1 : 0) + (d.out ? 1 : 0), 0);
+  // StandardProfil: one trip per sheet row (IN only = single, IN and OUT = double)
+  const isStandardProfil = tripSheet.client === 'StandardProfil';
+  const spTrips = tripSheet.rows.filter(r => r.in || r.out);
+  const spDoubles = spTrips.filter(r => r.in && r.out).length;
+  const tripSheetCount = isStandardProfil
+    ? spTrips.length
+    : tripSheet.days.reduce((n, d) => n + (d.in ? 1 : 0) + (d.out ? 1 : 0), 0);
 
   const openTripSheet = () => {
     setTripSheet(emptyTripSheet);
@@ -946,7 +953,8 @@ const now = new Date();
         route: data.route,
         taxi: data.taxi,
         invoiceMonth: data.invoiceMonth,
-        days: data.days
+        days: data.days,
+        rows: data.rows || []
       }));
     } catch (err) {
       setSnackbar({ open: true, message: err instanceof Error ? err.message : 'Could not read the trip sheet', severity: 'error' });
@@ -962,6 +970,13 @@ const now = new Date();
     }));
   };
 
+  const toggleTripSheetRow = (index: number, key: 'in' | 'out') => {
+    setTripSheet(s => ({
+      ...s,
+      rows: s.rows.map((r, i) => (i === index ? { ...r, [key]: !r[key] } : r))
+    }));
+  };
+
   const handleCreateTripSheetTrips = async (force = false) => {
     setTripSheetLoading(true);
     try {
@@ -974,6 +989,7 @@ const now = new Date();
           outShiftType: tripSheet.outShiftType,
           invoiceMonth: tripSheet.invoiceMonth,
           days: tripSheet.days,
+          rows: tripSheet.rows,
           userCreated: username,
           force
         })
@@ -1740,6 +1756,11 @@ const selectedCount =
                         <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
                       ))}
                     </TextField>
+                    {isStandardProfil ? (
+                      <Typography variant="body2" sx={{ mt: 2 }}>
+                        Each row of the sheet becomes one trip: IN only = Single Trip/s, IN and OUT = Double Trip/s.
+                      </Typography>
+                    ) : (<>
                     <Autocomplete
                       options={tripSheetInOptions}
                       getOptionLabel={o => o.label}
@@ -1768,6 +1789,7 @@ const selectedCount =
                       }
                       label={showAllShiftTypes ? 'Showing all shift types' : "Showing this client's shift types"}
                     />
+                    </>)}
                     <input
                       accept=".pdf"
                       type="file"
@@ -1779,7 +1801,9 @@ const selectedCount =
                 ) : (
                   <>
                     <Typography variant="body2" sx={{ mt: 1 }}>
-                      <strong>{tripSheet.client}</strong>: IN = {shiftLabel(tripSheet.inShiftType)}, OUT = {shiftLabel(tripSheet.outShiftType)}
+                    <strong>{tripSheet.client}</strong>: {isStandardProfil
+                                                          ? 'IN only = Single Trip/s, IN and OUT = Double Trip/s'
+                                                          : <>IN = {shiftLabel(tripSheet.inShiftType)}, OUT = {shiftLabel(tripSheet.outShiftType)}</>}
                     </Typography>
                     <TextField
                       label="Invoice month"
@@ -1794,7 +1818,16 @@ const selectedCount =
                       <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 80px 80px', px: 2, py: 1, bgcolor: '#f5f5f5', fontWeight: 600 }}>
                         <span>Date</span><span>IN</span><span>OUT</span>
                       </Box>
-                      {tripSheet.days.map(day => (
+                      {isStandardProfil ? tripSheet.rows.map((row, i) => (
+                        <Box key={i} sx={{ display: 'grid', gridTemplateColumns: '1fr 80px 80px', alignItems: 'center', px: 2, borderTop: '1px solid #eee' }}>
+                          <span>
+                            {new Date(row.date + 'T00:00:00').toLocaleDateString('en-ZA', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                            {' · '}{row.in && row.out ? 'Double' : row.in || row.out ? 'Single' : 'No trip'}
+                          </span>
+                          <Checkbox checked={row.in} onChange={() => toggleTripSheetRow(i, 'in')} />
+                          <Checkbox checked={row.out} onChange={() => toggleTripSheetRow(i, 'out')} />
+                        </Box>
+                      )) : tripSheet.days.map(day => (
                         <Box key={day.date} sx={{ display: 'grid', gridTemplateColumns: '1fr 80px 80px', alignItems: 'center', px: 2, borderTop: '1px solid #eee' }}>
                           <span>
                             {new Date(day.date + 'T00:00:00').toLocaleDateString('en-ZA', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
@@ -1805,7 +1838,9 @@ const selectedCount =
                       ))}
                     </Box>
                     <Typography variant="body2" sx={{ mt: 1 }}>
-                      {tripSheetCount} trips will be added.
+                    {isStandardProfil
+                        ? `${tripSheetCount} trips will be added: ${tripSheetCount - spDoubles} single, ${spDoubles} double.`
+                        : `${tripSheetCount} trips will be added.`}
                     </Typography>
                   </>
                 )}
@@ -1816,13 +1851,13 @@ const selectedCount =
                   <Button
                     onClick={() => tripSheetInputRef.current?.click()}
                     color="primary"
-                    disabled={tripSheetLoading || !tripSheet.client || !tripSheet.inShiftType || !tripSheet.outShiftType}
+                    disabled={tripSheetLoading || !tripSheet.client || (!isStandardProfil && (!tripSheet.inShiftType || !tripSheet.outShiftType))}
                   >
                     {tripSheetLoading ? <CircularProgress size={20} color="inherit" /> : 'Choose trip sheet PDF'}
                   </Button>
                 ) : (
                   <>
-                    <Button onClick={() => setTripSheet(s => ({ ...s, step: 'choose', days: [] }))} disabled={tripSheetLoading}>
+                    <Button onClick={() => setTripSheet(s => ({ ...s, step: 'choose', days: [], rows: [] }))} disabled={tripSheetLoading}>
                       Back
                     </Button>
                     <Button
