@@ -238,6 +238,19 @@ function generateInvoice(invoiceData) {
         100,
         { align: "right" }
       );
+    }else if (invoiceData.client === 'StandardProfil') {
+      doc.text(
+        "NB: StandardProfil - Atlantis/Pella/Mamre Route",
+        195,
+        95,
+        { align: "right" }
+      );
+      doc.text(
+        `(From ${invoiceData.from} to ${invoiceData.to})`,
+        195,
+        100,
+        { align: "right" }
+      );
     }
   // ======================
   // TABLE HEADER
